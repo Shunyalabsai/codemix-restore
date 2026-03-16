@@ -20,10 +20,17 @@ pip install codemix_restore-shunyalabs
 **With neural transliteration (recommended for best accuracy):**
 
 ```bash
+# Step 1: Install codemix_restore with all resolvable neural deps (torch, omegaconf, hydra, etc.)
 pip install "codemix_restore-shunyalabs[neural]"
+
+# Step 2: Install fairseq and ai4bharat-transliteration (broken transitive deps, must skip resolution)
+pip install fairseq==0.12.2 --no-deps
+pip install ai4bharat-transliteration --no-deps
 ```
 
-The `[neural]` extra installs [IndicXlit](https://github.com/AI4Bharat/IndicXlit) (AI4Bharat's neural transliteration model) and PyTorch. This gives significantly better accuracy on novel/rare English words but requires more memory (~1.4 GB) and has higher latency (~115ms/word vs <5ms/word).
+> **Why two steps?** `fairseq` requires `omegaconf<2.1`, but all omegaconf 2.0.x versions have invalid metadata that pip >= 24.1 rejects. Step 1 installs `omegaconf>=2.1` (valid metadata, works at runtime thanks to our compatibility patches). Step 2 installs fairseq/ai4bharat without pip trying to resolve their broken dependency tree.
+
+The neural mode uses [IndicXlit](https://github.com/AI4Bharat/IndicXlit) (AI4Bharat's neural transliteration model) and PyTorch. This gives significantly better accuracy on novel/rare English words but requires more memory (~1.4 GB) and has higher latency (~115ms/word vs <5ms/word). The library includes built-in Python 3.12 compatibility patches for fairseq/hydra.
 
 ### Requirements
 
@@ -221,17 +228,6 @@ The key design decision is the 3-tier romanization in Stage 2:
 The pipeline tries each tier in order and falls back gracefully. If IndicXlit is not installed, Tier 2+3 still provide strong coverage. If Aksharamukha is also missing, Tier 3 handles the basics.
 
 **Why IndicXlit matters:** Traditional romanization converts "कंप्यूटर" to something like "kampyutar" and then phonetically matches it to "computer" (score ~0.74, AMBIGUOUS). IndicXlit directly outputs "computer" as its top candidate, giving an exact dictionary match (score 1.0, HIGH confidence). This eliminates the need for phonetic fuzzy matching on the most common words.
-
-### Why Not NLLB / Machine Translation?
-
-NLLB and similar MT models are sentence-level semantic translators, not word-level script converters:
-
-- Language tags declare the entire input as one language, but code-mixed input has both languages at the word level
-- MT models translate/hallucinate native words that should be kept as-is
-- 54.5B parameters is overkill for what is fundamentally a phonetic mapping + classification task
-- No control over which words get translated
-
-Our pipeline handles ~90% of words via fast dictionary lookup (<5ms), reserving neural inference only for the long tail of ambiguous tokens.
 
 ## Configuration
 

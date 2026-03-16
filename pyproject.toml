@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codemix_restore-shunyalabs"
-version = "0.1.0"
+version = "0.1.2"
 description = "Restore English words from transliterated Indic script in code-mixed ASR output"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,8 +33,33 @@ dependencies = [
 
 [project.optional-dependencies]
 neural = [
-    "ai4bharat-transliteration>=1.0",
+    # We list all the deps that pip CAN resolve cleanly. fairseq and
+    # ai4bharat-transliteration have broken transitive deps (omegaconf<2.1
+    # metadata invalid on pip>=24.1), so they must be installed separately.
+    # Our code auto-detects if they're missing and prints install instructions.
     "torch>=2.0",
+    "omegaconf>=2.1,<2.2",
+    "hydra-core>=1.1,<1.2",
+    "antlr4-python3-runtime==4.8",
+    "cffi",
+    "cython",
+    "bitarray",
+    "regex",
+    "sacrebleu",
+    "tqdm",
+    "numpy",
+    "pydload",
+    "flask",
+    "flask-cors",
+    "gevent",
+    "sacremoses",
+    "pandas",
+    "ujson",
+    "mock",
+    "tensorboardX",
+    "pyarrow",
+    "urduhack",
+    "indic-nlp-library",
 ]
 dev = [
     "pytest>=7.0",
@@ -42,9 +67,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/shunyalabs/codemix-restore"
-Repository = "https://github.com/shunyalabs/codemix-restore"
-Issues = "https://github.com/shunyalabs/codemix-restore/issues"
+Homepage = "https://github.com/Shunyalabsai/codemix-restore"
+Repository = "https://github.com/Shunyalabsai/codemix-restore"
+Issues = "https://github.com/Shunyalabsai/codemix-restore/issues"
 
 [tool.setuptools.packages.find]
 include = ["codemix_restore*"]

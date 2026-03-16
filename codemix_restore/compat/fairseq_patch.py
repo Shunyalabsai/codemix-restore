@@ -11,6 +11,9 @@ Safe to call multiple times (idempotent).
 from __future__ import annotations
 
 import dataclasses
+import importlib
+import importlib.abc
+import importlib.machinery
 import logging
 import sys
 
@@ -28,9 +31,10 @@ def apply_patch() -> None:
     if sys.version_info >= (3, 11):
         _patch_dataclasses()
 
-    _patch_fairseq_checkpoint_utils()
+    # Register import hooks BEFORE any imports that could trigger the chain.
     _patch_fairseq_hydra_init()
     _patch_hydra_plugins()
+    _patch_fairseq_checkpoint_utils()
 
     _PATCHED = True
     logger.debug("fairseq/hydra/torch Python 3.12 patches applied")
@@ -91,19 +95,12 @@ def _patch_dataclasses() -> None:
 
 
 def _patch_fairseq_checkpoint_utils() -> None:
-    """Patch fairseq checkpoint_utils to use weights_only=False in torch.load.
+    """Patch torch.load to use weights_only=False by default.
 
     torch >= 2.6 changed the default to weights_only=True, but fairseq
     checkpoints contain argparse.Namespace objects that require pickle.
     """
     try:
-        import importlib
-        spec = importlib.util.find_spec("fairseq.checkpoint_utils")
-        if spec is None:
-            return
-        # We patch at import time by modifying the source file's torch.load call.
-        # Since the module may not be imported yet, we do a lazy patch: intercept
-        # torch.load itself to add weights_only=False when called from fairseq.
         import torch
         original_torch_load = torch.load
 
@@ -113,118 +110,205 @@ def _patch_fairseq_checkpoint_utils() -> None:
             return original_torch_load(*args, **kwargs)
 
         torch.load = patched_torch_load
-    except Exception:
+    except ImportError:
         pass  # torch not installed, nothing to patch
+
+
+# ---------------------------------------------------------------------------
+# fairseq.dataclass.initialize patch
+# ---------------------------------------------------------------------------
+
+def _patched_hydra_init(cfg_name="config"):
+    """Replacement hydra_init that handles default_factory and MISSING fields."""
+    from fairseq.dataclass.configs import FairseqConfig
+    from hydra.core.config_store import ConfigStore
+
+    cs = ConfigStore.instance()
+    cs.store(name=f"{cfg_name}", node=FairseqConfig)
+
+    for k in FairseqConfig.__dataclass_fields__:
+        field_obj = FairseqConfig.__dataclass_fields__[k]
+        v = field_obj.default
+        if v is dataclasses.MISSING:
+            if field_obj.default_factory is not dataclasses.MISSING:
+                v = field_obj.default_factory()
+            else:
+                # Truly required field with no default — skip it
+                continue
+        try:
+            cs.store(name=k, node=v)
+        except BaseException:
+            pass  # skip fields OmegaConf can't handle
 
 
 def _patch_fairseq_hydra_init() -> None:
     """Patch fairseq.dataclass.initialize.hydra_init to handle default_factory.
 
-    After our dataclass patch, fields that had mutable defaults now use
-    default_factory. The hydra_init function reads field.default directly,
-    which is MISSING for factory fields. We fix it to call the factory.
+    Uses a meta path finder with find_spec (modern API) to intercept the import
+    of fairseq.dataclass.initialize and replace hydra_init before fairseq.__init__
+    calls it.
     """
-    # This is a lazy patch — we monkey-patch the module after it's imported.
-    # Since fairseq imports happen lazily, we register an import hook.
-    import importlib
-    try:
-        spec = importlib.util.find_spec("fairseq.dataclass.initialize")
-        if spec is None:
-            return
-    except (ModuleNotFoundError, ValueError):
+    # If already imported, patch directly
+    if "fairseq.dataclass.initialize" in sys.modules:
+        sys.modules["fairseq.dataclass.initialize"].hydra_init = _patched_hydra_init
         return
 
-    # The actual patching happens when the module is first imported.
-    # We use a meta path finder to intercept it.
-    class FairseqInitPatcher:
-        """One-shot import hook that patches fairseq.dataclass.initialize."""
+    class FairseqInitPatcher(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        """One-shot meta path finder that patches fairseq.dataclass.initialize."""
 
-        def find_module(self, fullname, path=None):
-            if fullname == "fairseq.dataclass.initialize":
-                return self
-            return None
+        def __init__(self):
+            self._real_loader = None
 
-        def load_module(self, fullname):
-            if fullname in sys.modules:
-                return sys.modules[fullname]
-            # Remove ourselves so we don't interfere with the real import
-            sys.meta_path.remove(self)
-            # Do the real import
-            mod = importlib.import_module(fullname)
-            # Now patch the hydra_init function
-            original_hydra_init = mod.hydra_init
+        def find_spec(self, fullname, path, target=None):
+            if fullname != "fairseq.dataclass.initialize":
+                return None
+            # Remove ourselves to avoid infinite recursion
+            if self in sys.meta_path:
+                sys.meta_path.remove(self)
+            # Find the real spec using the remaining finders
+            real_spec = importlib.util.find_spec(fullname)
+            if real_spec is None:
+                return None
+            # Save the real loader for exec_module
+            self._real_loader = real_spec.loader
+            # Return a spec that uses us as the loader wrapper
+            return importlib.machinery.ModuleSpec(
+                fullname,
+                self,
+                origin=real_spec.origin,
+                is_package=False,
+            )
 
-            def patched_hydra_init(cfg_name="config"):
-                from fairseq.dataclass.configs import FairseqConfig
-                from hydra.core.config_store import ConfigStore
+        def create_module(self, spec):
+            return None  # use default module creation
 
-                cs = ConfigStore.instance()
-                cs.store(name=f"{cfg_name}", node=FairseqConfig)
-
-                for k in FairseqConfig.__dataclass_fields__:
-                    field_obj = FairseqConfig.__dataclass_fields__[k]
-                    v = field_obj.default
-                    if v is dataclasses.MISSING and field_obj.default_factory is not dataclasses.MISSING:
-                        v = field_obj.default_factory()
-                    try:
-                        cs.store(name=k, node=v)
-                    except BaseException:
-                        pass  # skip fields OmegaConf can't handle
-
-            mod.hydra_init = patched_hydra_init
-            return mod
+        def exec_module(self, module):
+            # Execute the real module code first
+            if self._real_loader:
+                self._real_loader.exec_module(module)
+            # Now patch hydra_init
+            module.hydra_init = _patched_hydra_init
 
     sys.meta_path.insert(0, FairseqInitPatcher())
 
 
+# ---------------------------------------------------------------------------
+# hydra.core.plugins patch
+# ---------------------------------------------------------------------------
+
 def _patch_hydra_plugins() -> None:
-    """Patch hydra.core.plugins to not use deprecated find_module/load_module.
-
-    Python 3.12 removed `find_module` from importlib finders. Hydra's plugin
-    scanner still uses it. We patch the scan method to use importlib.import_module
-    as a fallback.
-    """
-    # Similar lazy patching approach
-    import importlib
-
-    try:
-        spec = importlib.util.find_spec("hydra.core.plugins")
-        if spec is None:
-            return
-    except (ModuleNotFoundError, ValueError):
+    """Patch hydra.core.plugins to handle removed find_module in Python 3.12."""
+    if "hydra.core.plugins" in sys.modules:
+        _do_patch_hydra_plugins(sys.modules["hydra.core.plugins"])
         return
 
-    class HydraPluginsPatcher:
-        """One-shot import hook that patches hydra.core.plugins."""
+    class HydraPluginsPatcher(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        """One-shot meta path finder that patches hydra.core.plugins."""
 
-        def find_module(self, fullname, path=None):
-            if fullname == "hydra.core.plugins":
-                return self
+        def __init__(self):
+            self._real_loader = None
+
+        def find_spec(self, fullname, path, target=None):
+            if fullname != "hydra.core.plugins":
+                return None
+            if self in sys.meta_path:
+                sys.meta_path.remove(self)
+            real_spec = importlib.util.find_spec(fullname)
+            if real_spec is None:
+                return None
+            self._real_loader = real_spec.loader
+            return importlib.machinery.ModuleSpec(
+                fullname,
+                self,
+                origin=real_spec.origin,
+                is_package=False,
+            )
+
+        def create_module(self, spec):
             return None
 
-        def load_module(self, fullname):
-            if fullname in sys.modules:
-                return sys.modules[fullname]
-            sys.meta_path.remove(self)
-            mod = importlib.import_module(fullname)
-            # Patch the _scan_all_plugins method to handle missing find_module
-            original_scan = mod.Plugins._scan_all_plugins
-
-            @staticmethod
-            def patched_scan(*args, **kwargs):
-                import warnings
-                import pkgutil
-
-                # Simplified plugin scanning that doesn't use find_module
-                try:
-                    return original_scan(*args, **kwargs)
-                except AttributeError as e:
-                    if "find_module" in str(e):
-                        # Return empty results — fairseq doesn't need hydra plugins
-                        return {}, {}
-                    raise
-
-            mod.Plugins._scan_all_plugins = patched_scan
-            return mod
+        def exec_module(self, module):
+            if self._real_loader:
+                self._real_loader.exec_module(module)
+            _do_patch_hydra_plugins(module)
 
     sys.meta_path.insert(0, HydraPluginsPatcher())
+
+
+def _do_patch_hydra_plugins(mod) -> None:
+    """Patch _scan_all_plugins to handle missing find_module in Python 3.12.
+
+    The original code uses `importer.find_module(modname)` which fails on
+    Python 3.12 because FileFinder no longer has find_module. We patch the
+    scanner to use importlib.import_module as fallback.
+    """
+    if not hasattr(mod, 'Plugins'):
+        return
+
+    import inspect
+    import pkgutil
+    import warnings
+    from collections import defaultdict
+    from timeit import default_timer as timer
+
+    from hydra.plugins.plugin import Plugin
+    from hydra.plugins.config_source import ConfigSource
+    from hydra.plugins.completion_plugin import CompletionPlugin
+    from hydra.plugins.launcher import Launcher
+    from hydra.plugins.sweeper import Sweeper
+    from hydra.plugins.search_path_plugin import SearchPathPlugin
+
+    @staticmethod
+    def patched_scan(modules):
+        stats = mod.ScanStats()
+        stats.total_time = timer()
+
+        ret = defaultdict(list)
+        plugin_types = [Plugin, ConfigSource, CompletionPlugin, Launcher, Sweeper, SearchPathPlugin]
+
+        for mdl in modules:
+            for importer, modname, ispkg in pkgutil.walk_packages(
+                path=mdl.__path__, prefix=mdl.__name__ + ".", onerror=lambda x: None
+            ):
+                try:
+                    module_name = modname.rsplit(".", 1)[-1]
+                    if module_name.startswith("_") and not module_name.startswith("__"):
+                        continue
+
+                    import_time = timer()
+                    # Use importlib.import_module directly (works on all Python versions)
+                    with warnings.catch_warnings(record=True) as recorded_warnings:
+                        loaded_mod = importlib.import_module(modname)
+                    import_time = timer() - import_time
+
+                    if len(recorded_warnings) > 0:
+                        import sys as _sys
+                        _sys.stderr.write(
+                            f"[Hydra plugins scanner] : warnings from '{modname}'.\n"
+                        )
+
+                    stats.total_modules_import_time += import_time
+                    stats.modules_import_time[modname] = import_time
+
+                    if loaded_mod is not None:
+                        for name, obj in inspect.getmembers(loaded_mod):
+                            if (
+                                inspect.isclass(obj)
+                                and issubclass(obj, Plugin)
+                                and not inspect.isabstract(obj)
+                            ):
+                                for plugin_type in plugin_types:
+                                    if issubclass(obj, plugin_type):
+                                        ret[plugin_type].append(obj)
+                except ImportError as e:
+                    warnings.warn(
+                        message=f"\n\tError importing '{modname}'.\n"
+                        f"\tPlugin is incompatible with this Hydra version or buggy.\n"
+                        f"\t\t{type(e).__name__} : {e}",
+                        category=UserWarning,
+                    )
+
+        stats.total_time = timer() - stats.total_time
+        return ret, stats
+
+    mod.Plugins._scan_all_plugins = patched_scan

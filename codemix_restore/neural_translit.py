@@ -44,11 +44,25 @@ class NeuralTransliterator:
     def _init_engine(self) -> None:
         """Initialize IndicXlit transliteration engine."""
         try:
-            # Apply Python 3.12 compatibility patches before importing fairseq/hydra
+            # Apply Python 3.12 compatibility patches before importing fairseq/hydra.
+            # This patches dataclasses._get_field and torch.load at minimum.
             from codemix_restore.compat.fairseq_patch import apply_patch
             apply_patch()
 
-            from ai4bharat.transliteration import XlitEngine
+            # Import XlitEngine — this triggers the fairseq/hydra import chain.
+            # hydra_init() may fail due to MISSING fields, but that's non-fatal
+            # for the actual transliteration functionality (it only affects
+            # hydra config store registration, which we don't use).
+            import warnings
+            import logging as _logging
+            _fseq_init_logger = _logging.getLogger("fairseq.dataclass.initialize")
+            _prev_level = _fseq_init_logger.level
+            _fseq_init_logger.setLevel(_logging.CRITICAL)  # suppress expected errors
+            try:
+                from ai4bharat.transliteration import XlitEngine
+            finally:
+                _fseq_init_logger.setLevel(_prev_level)
+
             # Initialize for Indic-to-English direction
             self._engine = XlitEngine(
                 src_script_type="indic",
@@ -57,11 +71,26 @@ class NeuralTransliterator:
             )
             self._available = True
             logger.info("IndicXlit engine initialized (beam_width=%d)", self._beam_width)
-        except ImportError:
-            logger.warning(
-                "ai4bharat-transliteration not installed; neural transliteration disabled. "
-                "Install with: pip install ai4bharat-transliteration"
-            )
+        except ImportError as e:
+            missing = str(e)
+            if "fairseq" in missing:
+                logger.warning(
+                    "fairseq not installed; neural transliteration disabled. "
+                    "Install with: pip install fairseq==0.12.2 --no-deps && "
+                    "pip install ai4bharat-transliteration --no-deps"
+                )
+            elif "ai4bharat" in missing:
+                logger.warning(
+                    "ai4bharat-transliteration not installed; neural transliteration disabled. "
+                    "Install with: pip install fairseq==0.12.2 --no-deps && "
+                    "pip install ai4bharat-transliteration --no-deps"
+                )
+            else:
+                logger.warning(
+                    "Neural transliteration dependency missing (%s). "
+                    "Install with: pip install fairseq==0.12.2 --no-deps && "
+                    "pip install ai4bharat-transliteration --no-deps", e
+                )
         except Exception as e:
             logger.warning("Failed to initialize IndicXlit: %s", e)
 
