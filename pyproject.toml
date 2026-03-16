@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codemix_restore-shunyalabs"
+version = "0.1.0"
+description = "Restore English words from transliterated Indic script in code-mixed ASR output"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "ShunyaLabs"},
+]
+keywords = ["transliteration", "code-mixing", "ASR", "indic", "NLP", "hindi", "bengali", "tamil", "telugu"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "aksharamukha>=2.0",
+    "metaphone>=0.6",
+    "symspellpy>=6.7",
+]
+
+[project.optional-dependencies]
+neural = [
+    "ai4bharat-transliteration>=1.0",
+    "torch>=2.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/shunyalabs/codemix-restore"
+Repository = "https://github.com/shunyalabs/codemix-restore"
+Issues = "https://github.com/shunyalabs/codemix-restore/issues"
+
+[tool.setuptools.packages.find]
+include = ["codemix_restore*"]
+
+[tool.setuptools.package-data]
+codemix_restore = ["data/*.json", "data/warm_cache/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Load fairseq/hydra Python 3.12 compat patch before any imports
+addopts = "-p conftest"
