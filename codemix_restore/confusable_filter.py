@@ -59,6 +59,7 @@ class ConfusableFilter:
         # Hindi false positives
         ("hi", "छठमे"): {"shit"},
         ("hi", "ताजे"): {"take"},
+        ("hi", "बारिश"): {"barish"},
         # Kannada false positives
         ("kn", "ಹೈ"): {"he"},
         ("kn", "ಸೆಟ್"): {"set"},
@@ -93,6 +94,20 @@ class ConfusableFilter:
         ("ks", "ڈیٹ"): {"diet", "date", "dit"},
         # Urdu false positives — common native words
         ("ur", "بارش"): {"barish", "bar", "bars"},
+        # Bengali false positives — verb forms
+        ("bn", "করতে"): {"karate"},
+        # Gujarati false positives — verb forms
+        ("gu", "થઈ"): {"thai"},
+        ("gu", "થયું"): {"they"},
+        # Urdu false positives — verb forms and native words
+        ("ur", "کریں"): {"karen", "crane"},
+        ("ur", "فوری"): {"fore", "for", "fury"},
+        ("ur", "بیس"): {"bees", "base"},
+        ("ur", "بیک"): {"back", "beck"},
+        # Tamil false positives — native words
+        ("ta", "இன்னைக்கு"): {"when", "in"},
+        ("ta", "வீட்டுக்கு"): {"with", "which"},
+        ("ta", "போறேன்"): {"porn", "pore"},
     }
 
     # Build a fast lookup: (lang, word) -> blocked English words

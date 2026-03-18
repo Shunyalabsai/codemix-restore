@@ -199,6 +199,11 @@ class ScriptRestorer:
                 ("آن", "لائن"): "online", ("اپ", "ڈیٹ"): "update",
                 ("اسکرین", "شاٹ"): "screenshot", ("وائی", "فائی"): "wifi",
                 ("نیٹ", "ورک"): "network",
+                ("سافٹ", "ویئر"): "software",
+                ("ڈیٹا", "بیس"): "database",
+                ("بیک", "اپ"): "backup",
+                ("ڈیڈ", "لائن"): "deadline",
+                ("اپ", "ڈیٹ"): "update",
             },
             "sd": {
                 ("آن", "لائن"): "online", ("اسڪرين", "شاٽ"): "screenshot",

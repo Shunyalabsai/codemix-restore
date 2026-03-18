@@ -360,7 +360,10 @@ class PhoneticMatcher:
         # "dinner" variants (डिनर)
         "dinar": "dinner", "deenar": "dinner",
         # "file" variants (फाइल, ফাইল)
-        "fail": "file", "faayl": "file", "phail": "file",
+        "faayl": "file", "phail": "file", "faail": "file",
+        # "fail" variants (फेल, ফেইল, ફેઈલ, etc.)
+        "fail": "fail", "fel": "fail", "feil": "fail", "phel": "fail",
+        "feal": "fail",
         # "download" variants (डाउनलोड, ডাউনলোড)
         "daunalod": "download", "daunlod": "download",
         "daaunlod": "download",
@@ -412,8 +415,7 @@ class PhoneticMatcher:
         "paasavarad": "password",
         # "deadline" variants (expanded)
         "dedalaain": "deadline", "tetlain": "deadline",
-        # "file" variants — override false positive "faail"→"well"
-        "faail": "file", "faayl": "file",
+        # (faail/faayl already covered above in "file" variants)
         # "issue" variants — override false positive "ishyoo"→"which", "isju"→"is"
         "ishyoo": "issue", "isju": "issue",
         # "lunch" variants — override false positive "lnch"→"long"
@@ -458,6 +460,265 @@ class PhoneticMatcher:
         "saaphtveer": "software",
         # "update" variants (expanded for Telugu, Kannada)
         "apdeet": "update",
+        # === Expanded variants for comprehensive coverage ===
+        # "complete" variants (कंप्लीट, கம்ப்ளீட், కంప్లీట్, etc.)
+        "kanplit": "complete", "kamplit": "complete", "kanpliit": "complete",
+        "komplit": "complete", "komplete": "complete", "kanpleet": "complete",
+        "kampliit": "complete", "kamplid": "complete",
+        # "install" variants (इन्स्टॉल, ইনস্টল, etc.)
+        "instol": "install", "instal": "install", "inastol": "install",
+        "inastal": "install", "instaol": "install", "insatol": "install",
+        # "fix" variants (फिक्स)
+        "fiks": "fix", "phiks": "fix", "fiksh": "fix",
+        # "complaint" variants (कंप्लेंट, কমপ্লেইন্ট, etc.)
+        "kanplaint": "complaint", "kamplaint": "complaint",
+        "kanpleint": "complaint", "komplet": "complaint",
+        "kamplainat": "complaint", "kanplent": "complaint",
+        # "developer" variants (डेवलपर)
+        "devaalapar": "developer", "devalapar": "developer",
+        "developar": "developer", "divelapar": "developer",
+        # "unit" variants (यूनिट)
+        "yunit": "unit", "yuunit": "unit", "yoonit": "unit",
+        # "test" variants (टेस्ट)
+        "test": "test", "taist": "test", "tesdt": "test",
+        # "build" variants (बिल्ड)
+        "bild": "build", "bilad": "build", "bildt": "build",
+        # "computer" variants (कंप्यूटर, ಕಂಪ್ಯೂಟರ್, etc.)
+        "kanpyutar": "computer", "kampyutar": "computer",
+        "kanpyootar": "computer", "kompyutar": "computer",
+        # "transaction" variants (ट्रांजैक्शन, ట్రాన్సాక్షన్, etc.)
+        "traanjaaikshan": "transaction", "traansaikshan": "transaction",
+        "traanzaikshan": "transaction", "transaikshan": "transaction",
+        "transaakshan": "transaction",
+        # "process" variants (प्रोसेस)
+        "proses": "process", "prosas": "process", "proseeas": "process",
+        "proaiss": "process", "procheas": "process",
+        # "support" variants (सपोर्ट)
+        "saport": "support", "sapoart": "support", "sport": "support",
+        "sapord": "support",
+        # "configuration" variants (कॉन्फिगरेशन, কনফিগারেশন, etc.)
+        "kanfigareshan": "configuration", "kanphigareshan": "configuration",
+        "konfigurechan": "configuration",
+        # "migration" variants (मायग्रेशन)
+        "maigreshan": "migration", "maaigreshan": "migration",
+        # "security" variants (सिक्युरिटी, సెక్యూరిటీ, etc.)
+        "sikyuriti": "security", "sekyuriti": "security",
+        "sikyooraiti": "security", "sekyyooriti": "security",
+        # "certificate" variants (सर्टिफिकेट, సర్టిఫికేట్, etc.)
+        "sartifiket": "certificate", "sartifaiket": "certificate",
+        "chartiphiked": "certificate",
+        # "maintenance" variants (मेइनटेनेन्स, মেইনটেনেন্স, etc.)
+        "meinatenan": "maintenance", "meintanens": "maintenance",
+        "maintanens": "maintenance", "meainatenanch": "maintenance",
+        # "blood" variants (ब्लड)
+        "blad": "blood", "balad": "blood",
+        # "pressure" variants (प्रेशर)
+        "preshar": "pressure", "praishar": "pressure",
+        # "high" variants (हाई)
+        "haai": "high", "haaii": "high",
+        # "delivery" variants (डेलिवरी)
+        "delivari": "delivery", "deliivari": "delivery",
+        "dailiivari": "delivery", "telibhari": "delivery",
+        # "tracking" variants (ट्रैकिंग)
+        "trraiking": "tracking", "traiking": "tracking",
+        "traaiking": "tracking",
+        # "deploy" variants (डिप्लॉय)
+        "diploi": "deploy", "diiploi": "deploy",
+        "dipaaloi": "deploy",
+        # "architecture" variants (आर्किटेक्चर)
+        "arkiteckchar": "architecture", "aarkiteakchar": "architecture",
+        # "pipeline" variants (पाइपलाइन)
+        "paaipalain": "pipeline", "paipalain": "pipeline",
+        # "training" variants (ट्रेनिंग)
+        "treining": "training", "treining": "training",
+        "traaining": "training",
+        # "schedule" variants (शेड्यूल)
+        "shedyul": "schedule", "sedhul": "schedule",
+        "shedyool": "schedule",
+        # "quarterly" variants (क्वार्टरली)
+        "kvartarli": "quarterly", "kvaatarali": "quarterly",
+        # "verify" variants (वेरिफाई)
+        "verifai": "verify", "vairifai": "verify",
+        # "contact" variants (कॉन्ट्रैक्ट)
+        "kontrakt": "contract", "kantrraikd": "contract",
+        # "review" variants (रिव्यू)
+        "rivyu": "review", "rivyoo": "review",
+        # "customer" variants (कस्टमर, কাস্টমার, etc.)
+        "kastamar": "customer", "kaastamaar": "customer",
+        "kustomar": "customer",
+        # "complaint" variants (कम्प्लेईन्ट, কমপ্লেইন্ট)
+        "kanplainat": "complaint", "kamplaind": "complaint",
+        # "notify" variants (नोटिफाई)
+        "notifai": "notify", "notiphaaee": "notify",
+        # "refund" variants (रिफंड)
+        "riphand": "refund", "riphnd": "refund", "rifand": "refund",
+        # "escalation" variants (एस्कलेशन)
+        "eskaleshan": "escalation", "aiskaleshan": "escalation",
+        # "matrix" variants (मैट्रिक्स)
+        "maitriks": "matrix", "metriks": "matrix",
+        # "firewall" variants (फायरवॉल)
+        "faayarvol": "firewall", "phayarval": "firewall",
+        # "storage" variants (स्टोरेज)
+        "storej": "storage", "stoorej": "storage",
+        # "cloud" variants (क्लाउड)
+        "klaud": "cloud", "klaaud": "cloud",
+        # "load" variants (लोड)
+        "lod": "load", "load": "load",
+        # "balancer" variants (बैलेंसर)
+        "bailensar": "balancer", "bealainsar": "balancer",
+        # "admission" variants
+        "admisan": "admission", "aadmishan": "admission",
+        # "submission" variants
+        "sabmishan": "submission", "sabamisan": "submission",
+        # "extended" variants
+        "ekstendat": "extended", "aikstaind": "extended",
+        # "declared" variants
+        "diklear": "declare", "dikleyr": "declare",
+        # "abnormality" variants
+        "ebnormailiti": "abnormality", "abnormaaliti": "abnormality",
+        # "normal" variants (नॉर्मल)
+        "normal": "normal", "naarmal": "normal",
+        # "register" variants (रजिस्टर)
+        "rajistar": "register", "rejister": "register",
+        # "repair" variants (रिपेयर)
+        "ripeyar": "repair", "repeyar": "repair",
+        # "service" variants (सर्विस, சர்வீஸ்)
+        "sarvis": "service", "sarviis": "service",
+        "chaarviich": "service",
+        # "feature" variants (फीचर)
+        "fichar": "feature", "phichar": "feature",
+        "fiichar": "feature",
+        # "renewal" variants (रिन्यूअल)
+        "rinyual": "renewal", "rinyooval": "renewal",
+        "rinyooval": "renewal",
+        # "scholarship" variants (स्कॉलर्शिप)
+        "skolarship": "scholarship", "skaalarship": "scholarship",
+        # "application" variants (एप्लिकेशन)
+        "aplikeshan": "application", "aiplikeshan": "application",
+        # "analysis" variants (एनालिसिस, অ্যানালাইসিস)
+        "anaalisis": "analysis", "analisis": "analysis",
+        "ayaanalisis": "analysis",
+        # "viral" variants (वायरल)
+        "vairal": "viral", "vaayral": "viral",
+        # "trending" variants (ट्रेंडिंग)
+        "trending": "trending", "trainding": "trending",
+        # "infrastructure" variants
+        "inphrastraakchar": "infrastructure",
+        "infrastraakchar": "infrastructure",
+        # "production" variants
+        "prodakshan": "production", "praadakshan": "production",
+        # "environment" variants
+        "envaayronment": "environment", "envaaronmaint": "environment",
+        # "microservice" variants
+        "maaikroesarvisez": "microservice",
+        # "authentication" variants
+        "authaintaikeshan": "authentication",
+        "othaantaikeshan": "authentication",
+        # "enable" variants
+        "inebl": "enable", "aineibl": "enable",
+        # "campaign" variants
+        "kampein": "campaign", "kaampain": "campaign",
+        # "legal" variants
+        "liigal": "legal", "leegal": "legal",
+        # "property" variants
+        "proparti": "property", "prapaartii": "property",
+        # "portal" variants
+        "portal": "portal", "poartal": "portal",
+        # "connection" variants
+        "kanekshan": "connection", "kanaiskshan": "connection",
+        # "audit" variants
+        "odit": "audit", "aadit": "audit",
+        # "result" variants (expanded)
+        "rizalt": "result", "rizalat": "result",
+        "riichalt": "result",
+        # "resume" variants (expanded)
+        "rijyum": "resume", "rijyoom": "resume",
+        "rijuum": "resume",
+        # "bug" variants (बग, బగ్)
+        "baga": "bug",
+        # "close" variants (ক্লোস, ക്ലോസ്)
+        "klos": "close", "kloas": "close",
+        # "order" variants (ஆர்டர் → artar)
+        "artar": "order", "aartar": "order", "ordhar": "order",
+        # "food" variants (ফুড → fud)
+        "fud": "food", "fuud": "food", "phud": "food",
+        # "passport" variants (ಪಾಸ್ಪೋರ್ಟ್ → pasport)
+        "pasport": "passport", "paasport": "passport",
+        # "failure" variants (फेलियर → feliyar)
+        "feliyar": "failure", "failiyar": "failure",
+        "pheliyar": "failure",
+        # "balancer" variants (ব্যালান্সার → byalansar)
+        "byalansar": "balancer", "byaalansar": "balancer",
+        "bailansar": "balancer",
+        # "exceed" variants (ಎಕ್ಸೀಡ್ → eksid)
+        "eksid": "exceed", "aiksid": "exceed",
+        # "follow" variants (ஃபாலோ → falo)
+        "falo": "follow", "faalo": "follow", "phalo": "follow",
+        # "upload" variants (ಅಪ್ಲೋಡ್ → aplod)
+        "aplod": "upload", "aaplod": "upload",
+        # "change" variants (चेंज → chenz)
+        "chenz": "change", "chainz": "change", "chaing": "change",
+        # "frontend" variants (फ्रंटएंड → frantaend)
+        "frantaend": "frontend", "frantend": "frontend",
+        "phrantaend": "frontend",
+        # "immediately" variants
+        "imijietli": "immediately", "imiijiyatli": "immediately",
+        # "postpone" variants
+        "postapon": "postpone", "postpon": "postpone",
+        # "reschedule" variants
+        "rishedyul": "reschedule", "reeshedyul": "reschedule",
+        # "friday" variants
+        "phraaide": "friday", "fraide": "friday",
+        # "backup" variants (Tamil பேக்கப் → pekkap)
+        "pekkap": "backup", "bekap": "backup",
+        # "game" variants (expanded — Gujarati ગેમ → gem)
+        "gaim": "game",
+        # "patch" variants
+        "pach": "patch",
+        # "bill" variants
+        "bil": "bill",
+        # Batch 2 additions — wrong-word match prevention
+        # "upgrade" variants (আপগ্রেড → apagreda, അപ്ഗ്രേഡ് → apgred)
+        "apagreda": "upgrade", "apgreda": "upgrade", "apgred": "upgrade",
+        "aapagreda": "upgrade", "apaged": "upgrade",
+        # "process" variants (ପ୍ରୋସେସ → prosesa)
+        "prosesa": "process", "prosess": "process",
+        # "great" variants (கிரேட் → kiret)
+        "kiret": "great", "kret": "great", "giret": "great",
+        # "tax" variants (ટેક્સ → texa, ਟੈਕਸ → taykasa)
+        "texa": "tax", "taykasa": "tax", "taikasa": "tax",
+        "teksa": "tax", "taaks": "tax",
+        # "status" variants (ਸਟੇਟਸ → satetasa)
+        "satetasa": "status", "staitas": "status",
+        "stetasa": "status",
+        # "return" variants (റിട്ടേൺ → riten)
+        "riten": "return", "ritan": "return", "riteean": "return",
+        "ritean": "return",
+        # "license" variants (ಲೈಸೆನ್ಸ್ → laysens)
+        "laysens": "license", "laaisens": "license",
+        # "file" variants (ಫೈಲ್/ഫൈൽ → phayl)
+        "phayl": "file", "fayl": "file",
+        # "product" variants (ப்ராடக்ட் → pratakt)
+        "pratakt": "product", "praatakt": "product",
+        "prodakt": "product", "praadakt": "product",
+        # "demo" variants (டெமோ → temo)
+        "temo": "demo", "taimoa": "demo", "demo": "demo",
+        # "rate" variants (ரேட் → ret)
+        "ret": "rate", "reet": "rate",
+        # "data" variants (டாட்டா → taattaa, डेटा → deta)
+        "taattaa": "data", "tata": "data", "deta": "data",
+        "daittaa": "data", "detaa": "data",
+        # "week" variants (வீக் → viik)
+        "viik": "week", "vik": "week",
+        # "patient" variants (பேஷண்ட் → peashant)
+        "peashant": "patient", "peshant": "patient",
+        "peeashant": "patient",
+        # "hire" variants (ஹயர் → hayar)
+        "hayar": "hire", "haayar": "hire",
+        # "salary" variants (চেলাৰি → chelari)
+        "chelari": "salary", "chealari": "salary",
+        # "subsidy" variants (ସବସିଡି → sabasidi)
+        "sabasidi": "subsidy", "sabsidi": "subsidy",
     }
 
     def lookup(self, romanized_word: str, top_k: int = 3) -> list[MatchResult]:

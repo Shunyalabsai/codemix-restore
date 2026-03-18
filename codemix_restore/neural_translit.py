@@ -44,24 +44,49 @@ class NeuralTransliterator:
     def _init_engine(self) -> None:
         """Initialize IndicXlit transliteration engine."""
         try:
-            # Apply Python 3.12 compatibility patches before importing fairseq/hydra.
-            # This patches dataclasses._get_field and torch.load at minimum.
-            from codemix_restore.compat.fairseq_patch import apply_patch
-            apply_patch()
+            # Block tensorflow/keras from polluting the import chain FIRST.
+            # ai4bharat/fairseq/torch don't need TF, but packages like
+            # tensorflow-addons or tensorboardX can trigger TF imports
+            # that fail on newer TF versions (2.16+ removed keras.src.engine).
+            # This must happen before apply_patch() since torch import can
+            # trigger TF through tensorboard extensions.
+            import sys
+            import types
+            _tf_blocklist: dict[str, types.ModuleType | None] = {}
+            _tf_mod_names = (
+                "tensorflow", "tensorflow.python", "tensorflow.core",
+                "tensorflow.core.framework", "tensorflow.python.summary",
+                "tensorflow_addons",
+                "keras", "keras.src", "keras.src.engine",
+            )
+            _tf_dummy = types.ModuleType("_tf_dummy")
+            _tf_dummy.__path__ = []  # type: ignore[attr-defined]
+            _tf_dummy.__version__ = "0.0.0"  # some code checks tf.__version__
+            _tf_dummy.__spec__ = None
+            for mod_name in _tf_mod_names:
+                if mod_name not in sys.modules:
+                    _tf_blocklist[mod_name] = None
+                    sys.modules[mod_name] = _tf_dummy
 
-            # Import XlitEngine — this triggers the fairseq/hydra import chain.
-            # hydra_init() may fail due to MISSING fields, but that's non-fatal
-            # for the actual transliteration functionality (it only affects
-            # hydra config store registration, which we don't use).
-            import warnings
-            import logging as _logging
-            _fseq_init_logger = _logging.getLogger("fairseq.dataclass.initialize")
-            _prev_level = _fseq_init_logger.level
-            _fseq_init_logger.setLevel(_logging.CRITICAL)  # suppress expected errors
             try:
-                from ai4bharat.transliteration import XlitEngine
+                # Apply Python 3.12 compatibility patches before importing fairseq/hydra.
+                from codemix_restore.compat.fairseq_patch import apply_patch
+                apply_patch()
+
+                # Import XlitEngine — this triggers the fairseq/hydra import chain.
+                import logging as _logging
+                _fseq_init_logger = _logging.getLogger("fairseq.dataclass.initialize")
+                _prev_level = _fseq_init_logger.level
+                _fseq_init_logger.setLevel(_logging.CRITICAL)
+                try:
+                    from ai4bharat.transliteration import XlitEngine
+                finally:
+                    _fseq_init_logger.setLevel(_prev_level)
             finally:
-                _fseq_init_logger.setLevel(_prev_level)
+                # Restore original state so other code can still import TF if needed
+                for mod_name in _tf_blocklist:
+                    if sys.modules.get(mod_name) is _tf_dummy:
+                        del sys.modules[mod_name]
 
             # Initialize for Indic-to-English direction
             self._engine = XlitEngine(

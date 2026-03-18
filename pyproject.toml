@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codemix_restore-shunyalabs"
-version = "0.1.2"
+version = "0.2.5"
 description = "Restore English words from transliterated Indic script in code-mixed ASR output"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -75,7 +75,7 @@ Issues = "https://github.com/Shunyalabsai/codemix-restore/issues"
 include = ["codemix_restore*"]
 
 [tool.setuptools.package-data]
-codemix_restore = ["data/*.json", "data/warm_cache/*.json"]
+codemix_restore = ["data/*.json", "data/*.txt", "data/warm_cache/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

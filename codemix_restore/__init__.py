@@ -3,4 +3,4 @@
 from codemix_restore.pipeline import ScriptRestorer
 
 __all__ = ["ScriptRestorer"]
-__version__ = "0.1.0"
+__version__ = "0.2.5"
