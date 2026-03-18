@@ -22,6 +22,7 @@ from codemix_restore.neural_translit import NeuralTransliterator
 from codemix_restore.phonetic.engine import PhoneticMatcher
 from codemix_restore.reconstructor import Reconstructor
 from codemix_restore.tokenizer import ScriptType, Token, tokenize
+from codemix_restore.viterbi_lid import ViterbiSequenceTagger
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ class ScriptRestorer:
         high_threshold: float = 0.85,
         low_threshold: float = 0.55,
         lid_threshold: float = 0.70,
+        use_viterbi: bool = True,
     ):
         """Initialize the script restoration pipeline.
 
@@ -78,6 +80,8 @@ class ScriptRestorer:
             high_threshold: Score above which dictionary match is considered HIGH confidence.
             low_threshold: Score below which dictionary match is considered LOW confidence.
             lid_threshold: Probability threshold for language identification.
+            use_viterbi: Whether to use HMM/Viterbi sequence tagging for
+                Stage 3 instead of greedy per-token classification.
         """
         # Shared phonetic matcher
         self._matcher = PhoneticMatcher(dict_path=dict_path)
@@ -108,6 +112,11 @@ class ScriptRestorer:
             english_threshold=lid_threshold,
             native_word_lists=self._dict_lookup._native_words,
         )
+
+        # Stage 3b: Viterbi sequence tagger (optional, replaces greedy LID)
+        self._viterbi_tagger: ViterbiSequenceTagger | None = None
+        if use_viterbi:
+            self._viterbi_tagger = ViterbiSequenceTagger(lid=self._lid)
 
         # Stage 5: Reconstruction
         self._reconstructor = Reconstructor()
@@ -245,14 +254,163 @@ class ScriptRestorer:
                 )
                 lookup_results[token.position] = result
 
-        # Second pass: classify tokens using all stages
-        for i, token in enumerate(tokens):
-            # Skip tokens already handled by abbreviation/compound detection
+        # Second pass: classify tokens using Viterbi sequence tagging or
+        # greedy per-token classification (fallback).
+        if self._viterbi_tagger is not None:
+            self._classify_viterbi(
+                tokens, lookup_results, config, skip_positions,
+                lang, restorations, details,
+            )
+        else:
+            self._classify_greedy(
+                tokens, lookup_results, config, skip_positions,
+                lang, restorations, details,
+            )
+
+        # === STAGE 5: Reconstruction ===
+        # (methods _classify_viterbi and _classify_greedy defined below)
+        restored_text = self._reconstructor.reconstruct(
+            tokens, restorations, lang_code=lang
+        )
+
+        if return_details:
+            content_tokens = [t for t in tokens if t.script_type not in
+                              (ScriptType.WHITESPACE, ScriptType.PUNCTUATION)]
+            return RestoreResult(
+                text=restored_text,
+                original=text,
+                lang_code=lang,
+                tokens_total=len(content_tokens),
+                tokens_restored=len(restorations),
+                tokens_native=len(content_tokens) - len(restorations),
+                details=details,
+            )
+
+        return restored_text
+
+    # ------------------------------------------------------------------
+    # Classification strategies
+    # ------------------------------------------------------------------
+
+    def _classify_viterbi(
+        self,
+        tokens: list[Token],
+        lookup_results: dict[int, "LookupResult"],
+        config,
+        skip_positions: set[int],
+        lang: str,
+        restorations: dict[int, str],
+        details: list[TokenDetail],
+    ) -> None:
+        """Classify tokens using HMM/Viterbi sequence tagging.
+
+        HIGH/LOW confidence tokens participate as clamped anchors inside
+        the Viterbi path.  After decoding, tokens labelled ``"E"`` are
+        resolved to an English word via dictionary match or neural
+        transliteration.
+        """
+        assert self._viterbi_tagger is not None
+
+        # 1. Run Viterbi over all INDIC tokens (batch)
+        viterbi_labels = self._viterbi_tagger.tag_sequence(
+            tokens, lookup_results, config, skip_positions, lang,
+        )
+
+        # 2. Walk tokens and execute decisions based on labels
+        for token in tokens:
             if token.position in skip_positions:
                 continue
 
             if token.script_type != ScriptType.INDIC:
-                # Non-Indic tokens pass through unchanged
+                details.append(TokenDetail(
+                    original=token.text,
+                    restored=token.text,
+                    script_type=token.script_type.name,
+                    stage="passthrough",
+                    confidence=1.0,
+                ))
+                continue
+
+            lookup = lookup_results.get(token.position)
+            label = viterbi_labels.get(token.position, "N")
+
+            if label == "E":
+                english_word = None
+                stage = "viterbi"
+
+                # HIGH confidence → use dictionary match directly
+                if lookup and lookup.confidence == Confidence.HIGH and lookup.english_match:
+                    english_word = lookup.english_match
+                    stage = "dictionary"
+                # MEDIUM/AMBIGUOUS with match → apply quality gates
+                elif lookup and lookup.english_match:
+                    match_is_strong = (
+                        lookup.confidence in (Confidence.HIGH, Confidence.MEDIUM)
+                        and lookup.score >= 0.60
+                    )
+                    match_is_exact = (
+                        lookup.match_detail is not None
+                        and lookup.match_detail.match_type in ("exact", "translit_variant")
+                    )
+                    if match_is_strong or match_is_exact:
+                        english_word = lookup.english_match
+                        stage = "viterbi+dictionary"
+                    else:
+                        # Viterbi is more confident than greedy single-token,
+                        # so accept the match even if LID probability was < 0.75
+                        english_word = lookup.english_match
+                        stage = "viterbi+dictionary"
+
+                # Neural fallback
+                if english_word is None and self._neural and self._neural.is_available:
+                    english_word = self._neural.transliterate(token.text, lang)
+                    if english_word:
+                        stage = "viterbi+neural"
+
+                if english_word:
+                    restorations[token.position] = english_word
+                    details.append(TokenDetail(
+                        original=token.text,
+                        restored=english_word,
+                        script_type="INDIC→ENGLISH",
+                        stage=stage,
+                        confidence=lookup.score if lookup else 0.5,
+                    ))
+                else:
+                    # Viterbi said English but no word found → keep native
+                    details.append(TokenDetail(
+                        original=token.text,
+                        restored=token.text,
+                        script_type="INDIC_NATIVE",
+                        stage="viterbi_unresolved",
+                        confidence=0.5,
+                    ))
+            else:
+                # Native — keep as-is
+                details.append(TokenDetail(
+                    original=token.text,
+                    restored=token.text,
+                    script_type="INDIC_NATIVE",
+                    stage="viterbi",
+                    confidence=1.0 - (lookup.score if lookup else 0),
+                ))
+
+    def _classify_greedy(
+        self,
+        tokens: list[Token],
+        lookup_results: dict[int, "LookupResult"],
+        config,
+        skip_positions: set[int],
+        lang: str,
+        restorations: dict[int, str],
+        details: list[TokenDetail],
+    ) -> None:
+        """Original greedy per-token classification (fallback)."""
+        for i, token in enumerate(tokens):
+            if token.position in skip_positions:
+                continue
+
+            if token.script_type != ScriptType.INDIC:
                 details.append(TokenDetail(
                     original=token.text,
                     restored=token.text,
@@ -291,7 +449,6 @@ class ScriptRestorer:
             prev_english = None
             next_english = None
 
-            # Check previous token's resolution
             for j in range(i - 1, -1, -1):
                 if tokens[j].script_type == ScriptType.WHITESPACE:
                     continue
@@ -300,7 +457,6 @@ class ScriptRestorer:
                 prev_english = tokens[j].position in restorations
                 break
 
-            # Check next token's dictionary result (lookahead)
             for j in range(i + 1, len(tokens)):
                 if tokens[j].script_type == ScriptType.WHITESPACE:
                     continue
@@ -321,11 +477,8 @@ class ScriptRestorer:
             )
 
             if lid_result.is_english:
-                # Stage 4: Neural back-transliteration
                 english_word = None
 
-                # Try dictionary match first, but require reasonable confidence.
-                # For marginal LID results with weak dictionary evidence, keep native.
                 if lookup and lookup.english_match:
                     match_is_strong = (
                         lookup.confidence in (Confidence.HIGH, Confidence.MEDIUM)
@@ -335,14 +488,11 @@ class ScriptRestorer:
                         lookup.match_detail is not None
                         and lookup.match_detail.match_type in ("exact", "translit_variant")
                     )
-                    # For marginal LID (< 0.75), only accept exact/translit matches
                     if match_is_strong or match_is_exact:
                         english_word = lookup.english_match
                     elif lid_result.probability >= 0.75:
                         english_word = lookup.english_match
-                    # else: LID is marginal AND match is weak — skip
 
-                # Try neural transliteration
                 if english_word is None and self._neural and self._neural.is_available:
                     english_word = self._neural.transliterate(token.text, lang)
 
@@ -356,7 +506,6 @@ class ScriptRestorer:
                         confidence=lid_result.probability,
                     ))
                 else:
-                    # LID says English but we couldn't transliterate — keep native
                     details.append(TokenDetail(
                         original=token.text,
                         restored=token.text,
@@ -365,7 +514,6 @@ class ScriptRestorer:
                         confidence=lid_result.probability,
                     ))
             else:
-                # LID says native — keep as-is
                 details.append(TokenDetail(
                     original=token.text,
                     restored=token.text,
@@ -373,23 +521,3 @@ class ScriptRestorer:
                     stage="lid",
                     confidence=1.0 - lid_result.probability,
                 ))
-
-        # === STAGE 5: Reconstruction ===
-        restored_text = self._reconstructor.reconstruct(
-            tokens, restorations, lang_code=lang
-        )
-
-        if return_details:
-            content_tokens = [t for t in tokens if t.script_type not in
-                              (ScriptType.WHITESPACE, ScriptType.PUNCTUATION)]
-            return RestoreResult(
-                text=restored_text,
-                original=text,
-                lang_code=lang,
-                tokens_total=len(content_tokens),
-                tokens_restored=len(restorations),
-                tokens_native=len(content_tokens) - len(restorations),
-                details=details,
-            )
-
-        return restored_text
