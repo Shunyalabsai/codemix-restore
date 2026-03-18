@@ -502,7 +502,9 @@ class PhoneticMatcher:
             return results[:top_k]
 
         # 2. Metaphone match
-        if self._metaphone_func:
+        # Skip metaphone entirely for very short romanized inputs — they produce
+        # too many false positives (e.g., "am", "an", "he", "ja" match dozens of words)
+        if self._metaphone_func and len(word) > 2:
             codes = self._metaphone_func(word)
             seen: set[str] = set()
             for code in codes:
@@ -513,15 +515,23 @@ class PhoneticMatcher:
                             freq_rank = self._word_freq.get(candidate, 999999)
                             # Score based on phonetic match + frequency
                             freq_score = 1.0 / (1.0 + freq_rank / 100.0)
+                            score = 0.7 + 0.3 * freq_score
+                            # Penalize short English words — they match too many
+                            # native words phonetically (go, so, do, me, up, in, etc.)
+                            if len(candidate) <= 2:
+                                score = max(0.2, score - 0.35)
+                            elif len(candidate) <= 3:
+                                score = max(0.3, score - 0.20)
                             results.append(MatchResult(
                                 english_word=candidate,
-                                score=0.7 + 0.3 * freq_score,
+                                score=score,
                                 match_type="phonetic",
                                 frequency_rank=freq_rank,
                             ))
 
         # 3. Edit-distance match
-        if self._symspell:
+        # Skip edit-distance for very short romanized inputs — too many false positives
+        if self._symspell and len(word) > 2:
             from symspellpy import Verbosity
             suggestions = self._symspell.lookup(
                 word, Verbosity.CLOSEST, max_edit_distance=self._max_edit_distance
@@ -532,9 +542,16 @@ class PhoneticMatcher:
                     # Score inversely proportional to edit distance
                     dist_score = 1.0 - sug.distance / max(len(word), 1)
                     freq_score = 1.0 / (1.0 + freq_rank / 100.0)
+                    score = 0.4 * dist_score + 0.3 * freq_score + 0.3 * (1 if sug.distance <= 1 else 0)
+                    # Penalize short English words — they match too many
+                    # native words via edit distance
+                    if len(sug.term) <= 2:
+                        score = max(0.2, score - 0.35)
+                    elif len(sug.term) <= 3:
+                        score = max(0.3, score - 0.20)
                     results.append(MatchResult(
                         english_word=sug.term,
-                        score=0.4 * dist_score + 0.3 * freq_score + 0.3 * (1 if sug.distance <= 1 else 0),
+                        score=score,
                         match_type="edit_distance",
                         frequency_rank=freq_rank,
                     ))

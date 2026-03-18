@@ -97,11 +97,12 @@ class WordLanguageIdentifier:
     """Classifies ambiguous words as English or native language.
 
     Uses a feature-based approach with multiple signals:
-    1. Dictionary confidence score (from Stage 2)
+    1. Dictionary confidence score (from Stage 2), match-type aware
     2. Character n-gram analysis
     3. Subword suffix/prefix patterns
     4. Word length heuristics
     5. Context from neighboring words
+    6. Native word list membership
 
     This is a lightweight rule-based classifier. For production use with
     higher accuracy, train a logistic regression or BiLSTM model using
@@ -112,9 +113,11 @@ class WordLanguageIdentifier:
         self,
         english_threshold: float = 0.65,
         native_threshold: float = 0.35,
+        native_word_lists: dict[str, set[str]] | None = None,
     ):
         self._english_threshold = english_threshold
         self._native_threshold = native_threshold
+        self._native_word_lists = native_word_lists or {}
 
     def classify(
         self,
@@ -125,6 +128,7 @@ class WordLanguageIdentifier:
         context_next: str | None = None,
         prev_is_english: bool | None = None,
         next_is_english: bool | None = None,
+        lang_code: str | None = None,
     ) -> LIDResult:
         """Classify a word as English or native.
 
@@ -136,13 +140,14 @@ class WordLanguageIdentifier:
             context_next: Next word (for context signal).
             prev_is_english: Whether previous word was classified as English.
             next_is_english: Whether next word was classified as English.
+            lang_code: Language code for native word list lookup.
 
         Returns:
             LIDResult with classification and probability.
         """
         signals: dict[str, float] = {}
 
-        # Signal 1: Dictionary confidence (strongest signal)
+        # Signal 1: Dictionary confidence (strongest signal), match-type aware
         dict_score = self._dictionary_signal(lookup_result)
         signals["dictionary"] = dict_score
 
@@ -166,14 +171,20 @@ class WordLanguageIdentifier:
         context_score = self._context_signal(prev_is_english, next_is_english)
         signals["context"] = context_score
 
-        # Weighted combination
+        # Signal 7: Native word list membership
+        native_score = self._native_word_list_signal(word, lang_code)
+        signals["native_list"] = native_score
+
+        # Weighted combination — dictionary is strongest, context reduced
+        # to prevent cascade errors from false positives
         weights = {
             "dictionary": 0.40,
-            "suffix": 0.15,
+            "suffix": 0.12,
             "prefix": 0.05,
             "length": 0.10,
-            "char_composition": 0.15,
-            "context": 0.15,
+            "char_composition": 0.13,
+            "context": 0.10,
+            "native_list": 0.10,
         }
 
         probability = sum(signals[k] * weights[k] for k in weights)
@@ -188,16 +199,30 @@ class WordLanguageIdentifier:
         )
 
     def _dictionary_signal(self, lookup_result: LookupResult | None) -> float:
-        """Score from dictionary lookup."""
+        """Score from dictionary lookup, adjusted by match type.
+
+        Exact and translit_variant matches are trusted fully. Phonetic and
+        edit-distance matches are penalized since they produce many false
+        positives (e.g., native words that happen to sound like English).
+        """
         if lookup_result is None:
             return 0.5  # Neutral when no dictionary result
 
+        # Apply match-type discount for non-exact matches
+        match_type_factor = 1.0
+        if lookup_result.match_detail is not None:
+            mt = lookup_result.match_detail.match_type
+            if mt == "phonetic":
+                match_type_factor = 0.70
+            elif mt == "edit_distance":
+                match_type_factor = 0.50
+
         if lookup_result.confidence == Confidence.HIGH:
-            return 1.0
+            return min(1.0, 1.0 * match_type_factor)
         elif lookup_result.confidence == Confidence.AMBIGUOUS:
-            return lookup_result.score
+            return lookup_result.score * match_type_factor
         elif lookup_result.confidence == Confidence.MEDIUM:
-            return 0.4 + lookup_result.score * 0.3
+            return (0.4 + lookup_result.score * 0.3) * match_type_factor
         else:  # LOW
             return 0.1
 
@@ -230,8 +255,10 @@ class WordLanguageIdentifier:
             if not unicodedata.category(c).startswith("M")
         )
 
-        if base_chars <= 2:
-            return 0.25  # Short words are usually native
+        if base_chars <= 1:
+            return 0.05  # Single-char words are almost never English
+        elif base_chars <= 2:
+            return 0.15  # 2-char words are very rarely English
         elif base_chars <= 4:
             return 0.5   # Could be either
         else:
@@ -300,3 +327,20 @@ class WordLanguageIdentifier:
             score -= 0.1
 
         return max(0.0, min(1.0, score))
+
+    def _native_word_list_signal(
+        self,
+        word: str,
+        lang_code: str | None,
+    ) -> float:
+        """Check if word appears in native word frequency list.
+
+        Words in the native list are definitively native.
+        """
+        if not lang_code or not self._native_word_lists:
+            return 0.5  # Neutral when no list available
+
+        native_words = self._native_word_lists.get(lang_code, set())
+        if word in native_words:
+            return 0.0  # Definitively native
+        return 0.5  # Neutral — absence from list is not evidence of English

@@ -56,9 +56,22 @@ class Reconstructor:
         """
         restored_tokens: list[RestoredToken] = []
 
+        # Track positions with empty restorations (e.g., collapsed abbreviation parts)
+        # so we can also skip the whitespace before them.
+        empty_positions = {pos for pos, text in restorations.items() if text == ""}
+
         for token in tokens:
+            # Skip whitespace tokens that precede an empty-restoration token
+            if token.script_type == ScriptType.WHITESPACE:
+                # Look ahead for next non-whitespace token
+                next_pos = token.position + 1
+                if next_pos in empty_positions:
+                    continue
+
             if token.position in restorations:
                 restored_text = restorations[token.position]
+                if restored_text == "":
+                    continue  # Skip collapsed abbreviation parts
                 restored_tokens.append(RestoredToken(
                     original=token.text,
                     restored=restored_text,

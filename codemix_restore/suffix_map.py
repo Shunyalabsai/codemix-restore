@@ -75,4 +75,33 @@ AGGLUTINATIVE_SUFFIXES: dict[str, list[str]] = {
     "as": sorted([
         "কে", "ত", "ৰ", "লৈ",
     ], key=len, reverse=True),
+
+    # Malayalam — case markers and postpositions
+    "ml": sorted([
+        "ത്തിൽ", "ത്തിന്",
+        "യിൽ", "യ്ക്ക്",
+        "ന്റെ", "ക്ക്",
+        "ൽ", "ൾ", "ൻ",
+    ], key=len, reverse=True),
+
+    # Nepali — postpositions (Devanagari script)
+    "ne": sorted([
+        "बाट", "सँग", "भित्र",
+        "मा", "लाई", "को", "ले", "का", "की", "के",
+    ], key=len, reverse=True),
+
+    # Urdu — postpositions (Perso-Arabic script)
+    "ur": sorted([
+        "میں", "کو", "سے", "کا", "کی", "کے", "نے", "پر",
+    ], key=len, reverse=True),
+
+    # Konkani — case markers (Devanagari script)
+    "kok": sorted([
+        "ंत", "ांत", "क", "ची", "चो", "चें",
+    ], key=len, reverse=True),
+
+    # Maithili — case markers (Devanagari script)
+    "mai": sorted([
+        "मे", "के", "सँ", "पर",
+    ], key=len, reverse=True),
 }

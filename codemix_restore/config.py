@@ -102,6 +102,27 @@ LANGUAGE_CONFIGS: dict[str, LanguageConfig] = {
         has_retroflex=False,
         family="tibeto-burman",
     ),
+    # --- Indo-Aryan (Devanagari script) — non-scheduled but present in ASR data ---
+    "bho": LanguageConfig(
+        lang_code="bho",
+        lang_name="Bhojpuri",
+        script_name="Devanagari",
+        unicode_ranges=[(0x0900, 0x097F)],
+        indicxlit_code="hi",  # Use Hindi model as closest proxy
+        has_aspirates=True,
+        has_retroflex=True,
+        family="indo-aryan",
+    ),
+    "hne": LanguageConfig(
+        lang_code="hne",
+        lang_name="Chhattisgarhi",
+        script_name="Devanagari",
+        unicode_ranges=[(0x0900, 0x097F)],
+        indicxlit_code="hi",  # Use Hindi model as closest proxy
+        has_aspirates=True,
+        has_retroflex=True,
+        family="indo-aryan",
+    ),
     # --- Indo-Aryan (Bengali script) ---
     "bn": LanguageConfig(
         lang_code="bn",

@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from codemix_restore.abbreviation import detect_abbreviation_sequence
 from codemix_restore.config import detect_lang_from_script, get_config
 from codemix_restore.dictionary_lookup import Confidence, DictionaryLookup
 from codemix_restore.language_id import WordLanguageIdentifier
@@ -63,9 +64,9 @@ class ScriptRestorer:
         dict_path: str | Path | None = None,
         warm_cache_dir: str | Path | None = None,
         use_neural: bool = True,
-        high_threshold: float = 0.75,
-        low_threshold: float = 0.4,
-        lid_threshold: float = 0.65,
+        high_threshold: float = 0.85,
+        low_threshold: float = 0.55,
+        lid_threshold: float = 0.70,
     ):
         """Initialize the script restoration pipeline.
 
@@ -102,9 +103,10 @@ class ScriptRestorer:
             neural_transliterator=self._neural,
         )
 
-        # Stage 3: Language identification
+        # Stage 3: Language identification (with native word lists for signal)
         self._lid = WordLanguageIdentifier(
             english_threshold=lid_threshold,
+            native_word_lists=self._dict_lookup._native_words,
         )
 
         # Stage 5: Reconstruction
@@ -156,10 +158,83 @@ class ScriptRestorer:
         restorations: dict[int, str] = {}  # position -> english word
         details: list[TokenDetail] = []
 
-        # First pass: dictionary lookup for all Indic tokens
+        # Pre-pass: detect abbreviation sequences (e.g., "ડીએ બીએ" → "D.A. B.A.")
+        # Mark detected abbreviation tokens so they skip normal processing.
+        abbreviation_positions: set[int] = set()
+        indic_tokens = [t for t in tokens if t.script_type == ScriptType.INDIC]
+        indic_words = [t.text for t in indic_tokens]
+        i_abbr = 0
+        while i_abbr < len(indic_tokens):
+            result = detect_abbreviation_sequence(indic_words, i_abbr)
+            if result is not None:
+                abbr_str, count = result
+                # Assign the full abbreviation to the first token, mark rest for skip
+                first_token = indic_tokens[i_abbr]
+                restorations[first_token.position] = abbr_str
+                abbreviation_positions.add(first_token.position)
+                details.append(TokenDetail(
+                    original=" ".join(indic_words[i_abbr:i_abbr + count]),
+                    restored=abbr_str,
+                    script_type="INDIC→ABBREVIATION",
+                    stage="abbreviation",
+                    confidence=1.0,
+                ))
+                for j in range(1, count):
+                    skip_token = indic_tokens[i_abbr + j]
+                    abbreviation_positions.add(skip_token.position)
+                    restorations[skip_token.position] = ""  # Will be collapsed
+                i_abbr += count
+            else:
+                i_abbr += 1
+
+        # Pre-pass: detect compound words split by ASR (e.g., "آن لائن" → "online")
+        # Common in Perso-Arabic script languages (Kashmiri, Urdu, Sindhi)
+        compound_positions: set[int] = set()
+        _COMPOUND_WORDS: dict[str, dict[tuple[str, str], str]] = {
+            "ks": {
+                ("آن", "لائن"): "online", ("اپ", "ڈیٹ"): "update",
+                ("اسکرین", "شاٹ"): "screenshot", ("وائی", "فائی"): "wifi",
+            },
+            "ur": {
+                ("آن", "لائن"): "online", ("اپ", "ڈیٹ"): "update",
+                ("اسکرین", "شاٹ"): "screenshot", ("وائی", "فائی"): "wifi",
+                ("نیٹ", "ورک"): "network",
+            },
+            "sd": {
+                ("آن", "لائن"): "online", ("اسڪرين", "شاٽ"): "screenshot",
+            },
+        }
+        compound_map = _COMPOUND_WORDS.get(lang, {})
+        if compound_map:
+            i_cmp = 0
+            while i_cmp < len(indic_tokens) - 1:
+                w1 = indic_tokens[i_cmp].text
+                w2 = indic_tokens[i_cmp + 1].text
+                compound = compound_map.get((w1, w2))
+                if compound is not None:
+                    first_token = indic_tokens[i_cmp]
+                    second_token = indic_tokens[i_cmp + 1]
+                    restorations[first_token.position] = compound
+                    restorations[second_token.position] = ""
+                    compound_positions.add(first_token.position)
+                    compound_positions.add(second_token.position)
+                    details.append(TokenDetail(
+                        original=f"{w1} {w2}",
+                        restored=compound,
+                        script_type="INDIC→COMPOUND",
+                        stage="compound",
+                        confidence=1.0,
+                    ))
+                    i_cmp += 2
+                else:
+                    i_cmp += 1
+
+        skip_positions = abbreviation_positions | compound_positions
+
+        # First pass: dictionary lookup for all Indic tokens (skip handled tokens)
         lookup_results: dict[int, LookupResult] = {}
         for token in tokens:
-            if token.script_type == ScriptType.INDIC:
+            if token.script_type == ScriptType.INDIC and token.position not in skip_positions:
                 result = self._dict_lookup.lookup(
                     token.text, lang, token.script_name
                 )
@@ -167,6 +242,10 @@ class ScriptRestorer:
 
         # Second pass: classify tokens using all stages
         for i, token in enumerate(tokens):
+            # Skip tokens already handled by abbreviation/compound detection
+            if token.position in skip_positions:
+                continue
+
             if token.script_type != ScriptType.INDIC:
                 # Non-Indic tokens pass through unchanged
                 details.append(TokenDetail(
@@ -233,15 +312,30 @@ class ScriptRestorer:
                 lookup_result=lookup,
                 prev_is_english=prev_english,
                 next_is_english=next_english,
+                lang_code=lang,
             )
 
             if lid_result.is_english:
                 # Stage 4: Neural back-transliteration
                 english_word = None
 
-                # Try dictionary match first (it may have a medium-confidence match)
+                # Try dictionary match first, but require reasonable confidence.
+                # For marginal LID results with weak dictionary evidence, keep native.
                 if lookup and lookup.english_match:
-                    english_word = lookup.english_match
+                    match_is_strong = (
+                        lookup.confidence in (Confidence.HIGH, Confidence.MEDIUM)
+                        and lookup.score >= 0.60
+                    )
+                    match_is_exact = (
+                        lookup.match_detail is not None
+                        and lookup.match_detail.match_type in ("exact", "translit_variant")
+                    )
+                    # For marginal LID (< 0.75), only accept exact/translit matches
+                    if match_is_strong or match_is_exact:
+                        english_word = lookup.english_match
+                    elif lid_result.probability >= 0.75:
+                        english_word = lookup.english_match
+                    # else: LID is marginal AND match is weak — skip
 
                 # Try neural transliteration
                 if english_word is None and self._neural and self._neural.is_available:

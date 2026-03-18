@@ -12,8 +12,9 @@ from codemix_restore.config import (
 
 
 class TestLanguageConfigs:
-    def test_all_22_languages_present(self):
-        assert len(LANGUAGE_CONFIGS) == 22
+    def test_all_languages_present(self):
+        # 22 scheduled + 2 additional (Bhojpuri, Chhattisgarhi)
+        assert len(LANGUAGE_CONFIGS) == 24
 
     def test_get_config_valid(self):
         cfg = get_config("hi")

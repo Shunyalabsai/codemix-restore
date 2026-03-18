@@ -158,6 +158,104 @@ GURMUKHI_MAP: dict[str, str] = {
     "੍": "",  # Virama
 }
 
+# Odia (Oriya) consonant and vowel mappings
+ODIA_MAP: dict[str, str] = {
+    # Vowels
+    "ଅ": "a", "ଆ": "aa", "ଇ": "i", "ଈ": "ee", "ଉ": "u", "ଊ": "oo",
+    "ଋ": "ri", "ଏ": "e", "ଐ": "ai", "ଓ": "o", "ଔ": "au",
+    # Vowel signs
+    "ା": "aa", "ି": "i", "ୀ": "ee", "ୁ": "u", "ୂ": "oo",
+    "ୃ": "ri", "େ": "e", "ୈ": "ai", "ୋ": "o", "ୌ": "au",
+    # Consonants
+    "କ": "ka", "ଖ": "kha", "ଗ": "ga", "ଘ": "gha", "ଙ": "nga",
+    "ଚ": "cha", "ଛ": "chha", "ଜ": "ja", "ଝ": "jha", "ଞ": "nya",
+    "ଟ": "ta", "ଠ": "tha", "ଡ": "da", "ଢ": "dha", "ଣ": "na",
+    "ତ": "ta", "ଥ": "tha", "ଦ": "da", "ଧ": "dha", "ନ": "na",
+    "ପ": "pa", "ଫ": "pha", "ବ": "ba", "ଭ": "bha", "ମ": "ma",
+    "ଯ": "ya", "ର": "ra", "ଲ": "la", "ଳ": "la", "ଵ": "va",
+    "ଶ": "sha", "ଷ": "sha", "ସ": "sa", "ହ": "ha",
+    "ଂ": "n", "ଃ": "h", "ଁ": "n",
+    "୍": "",  # Virama
+    "଼": "",  # Nukta
+    # Nukta variants
+    "ଡ଼": "da", "ଢ଼": "dha",
+}
+
+# Malayalam consonant and vowel mappings
+MALAYALAM_MAP: dict[str, str] = {
+    # Vowels
+    "അ": "a", "ആ": "aa", "ഇ": "i", "ഈ": "ee", "ഉ": "u", "ഊ": "oo",
+    "ഋ": "ri", "എ": "e", "ഏ": "ee", "ഐ": "ai", "ഒ": "o", "ഓ": "oo", "ഔ": "au",
+    # Vowel signs
+    "ാ": "aa", "ി": "i", "ീ": "ee", "ു": "u", "ൂ": "oo",
+    "ൃ": "ri", "െ": "e", "േ": "ee", "ൈ": "ai", "ൊ": "o", "ോ": "oo", "ൌ": "au",
+    "ൗ": "au",
+    # Consonants
+    "ക": "ka", "ഖ": "kha", "ഗ": "ga", "ഘ": "gha", "ങ": "nga",
+    "ച": "cha", "ഛ": "chha", "ജ": "ja", "ഝ": "jha", "ഞ": "nya",
+    "ട": "ta", "ഠ": "tha", "ഡ": "da", "ഢ": "dha", "ണ": "na",
+    "ത": "tha", "ഥ": "thha", "ദ": "da", "ധ": "dha", "ന": "na",
+    "പ": "pa", "ഫ": "pha", "ബ": "ba", "ഭ": "bha", "മ": "ma",
+    "യ": "ya", "ര": "ra", "ല": "la", "വ": "va", "ശ": "sha",
+    "ഷ": "sha", "സ": "sa", "ഹ": "ha",
+    "ള": "la", "ഴ": "zha", "റ": "ra",
+    "ം": "n", "ഃ": "h",
+    "്": "",  # Virama (chandrakkala)
+    # Chillu consonants (pure consonants without inherent vowel)
+    "ൻ": "n", "ൺ": "n", "ൾ": "l", "ൽ": "l", "ർ": "r", "ൿ": "k",
+}
+
+# Urdu (Perso-Arabic) consonant and vowel mappings
+URDU_MAP: dict[str, str] = {
+    # Consonants
+    "ا": "a", "آ": "aa", "ب": "ba", "پ": "pa", "ت": "ta", "ٹ": "ta",
+    "ث": "sa", "ج": "ja", "چ": "cha", "ح": "ha", "خ": "kha",
+    "د": "da", "ڈ": "da", "ذ": "za", "ر": "ra", "ڑ": "ra",
+    "ز": "za", "ژ": "zha", "س": "sa", "ش": "sha", "ص": "sa",
+    "ض": "za", "ط": "ta", "ظ": "za", "ع": "a", "غ": "gha",
+    "ف": "fa", "ق": "qa", "ک": "ka", "گ": "ga", "ل": "la",
+    "م": "ma", "ن": "na", "ں": "n", "و": "va", "ہ": "ha",
+    "ھ": "ha", "ء": "", "ی": "ya", "ے": "e",
+    # Diacritics
+    "َ": "a", "ِ": "i", "ُ": "u", "ّ": "",  # Shadda (gemination)
+    "ً": "an", "ٍ": "in", "ٌ": "un",
+    "ٰ": "aa",  # Superscript alef
+    "ؤ": "va", "ئ": "ya",
+}
+
+# MeeteiMayek (Manipuri) consonant and vowel mappings
+MEETEI_MAYEK_MAP: dict[str, str] = {
+    # Vowels (independent)
+    "ꯑ": "a", "ꯒ": "ga",
+    # Consonants
+    "ꯀ": "ka", "ꯈ": "kha", "ꯉ": "nga",
+    "ꯆ": "cha", "ꯖ": "ja", "ꯇ": "ta", "ꯊ": "tha",
+    "ꯗ": "da", "ꯙ": "dha", "ꯅ": "na",
+    "ꯄ": "pa", "ꯐ": "pha", "ꯕ": "ba", "ꯚ": "bha", "ꯃ": "ma",
+    "ꯌ": "ya", "ꯔ": "ra", "ꯂ": "la", "ꯋ": "va",
+    "ꯁ": "sa", "ꯍ": "ha",
+    # Vowel signs
+    "ꯥ": "aa", "ꯤ": "i", "ꯨ": "u", "ꯦ": "e", "ꯩ": "ai",
+    "ꯣ": "o", "ꯧ": "au",
+    # Special
+    "ꯪ": "ng",
+    "꯭": "",  # Virama
+}
+
+# Ol Chiki (Santali) consonant and vowel mappings
+OL_CHIKI_MAP: dict[str, str] = {
+    # Consonants
+    "ᱚ": "a", "ᱛ": "ta", "ᱜ": "ga", "ᱝ": "nga", "ᱞ": "la",
+    "ᱟ": "aa", "ᱠ": "ka", "ᱡ": "ja", "ᱢ": "ma", "ᱣ": "va",
+    "ᱤ": "i", "ᱥ": "sa", "ᱦ": "ha", "ᱧ": "nya", "ᱨ": "ra",
+    "ᱩ": "u", "ᱪ": "cha", "ᱫ": "da", "ᱬ": "na", "ᱭ": "ya",
+    "ᱮ": "e", "ᱯ": "pa", "ᱰ": "da", "ᱱ": "na", "ᱲ": "ra",
+    "ᱳ": "o", "ᱴ": "ta", "ᱵ": "ba",
+    # Vowel signs / modifiers
+    "ᱶ": "n",  # Mu-gaahlaa
+    "ᱷ": "h",  # Ahad
+}
+
 # Map from script name to character map
 SCRIPT_MAPS: dict[str, dict[str, str]] = {
     "Devanagari": DEVANAGARI_MAP,
@@ -168,6 +266,13 @@ SCRIPT_MAPS: dict[str, dict[str, str]] = {
     "Kannada": KANNADA_MAP,
     "Gujarati": GUJARATI_MAP,
     "Gurmukhi": GURMUKHI_MAP,
+    "Oriya": ODIA_MAP,
+    "Malayalam": MALAYALAM_MAP,
+    "Urdu": URDU_MAP,
+    "Sindhi": URDU_MAP,  # Sindhi uses extended Perso-Arabic
+    "Kashmiri": URDU_MAP,  # Kashmiri uses Perso-Arabic
+    "MeeteiMayek": MEETEI_MAYEK_MAP,
+    "OlChiki": OL_CHIKI_MAP,
 }
 
 

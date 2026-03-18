@@ -45,3 +45,6 @@ models/
 
 # Warm cache data (generated, not committed)
 codemix_restore/data/warm_cache/*.json
+
+*.jsonl
+*.json
