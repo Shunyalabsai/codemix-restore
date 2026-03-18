@@ -6,7 +6,7 @@ ASR models for Indian languages output everything in a single native script. Whe
 
 ```
 Input  (ASR output):  "धन्यवाद फॉर योर हेल्प, थैंक यू सो मच।"
-Output (restored):    "धन्यवाद for your help, thank you so much।"
+Output (restored):    "धन्यवाद for your help. Thank you so much."
 ```
 
 ## Installation
@@ -107,7 +107,7 @@ for detail in result.details:
 # प्लीज           -> please           [dictionary, 0.95]
 # डॉक्यूमेंट       -> document          [dictionary, 0.95]
 # शेयर            -> share             [dictionary, 0.95]
-# करो             -> करो               [dictionary, 1.00]
+# करो             -> करो               [viterbi, 1.00]
 ```
 
 ### Batch processing
@@ -136,9 +136,17 @@ result = restorer.restore("प्लीज मीटिंग शेड्यू
 # -> "Please meeting schedule करो"
 ```
 
+### Disable Viterbi sequence tagging
+
+The pipeline uses an HMM/Viterbi algorithm by default for globally optimal language tagging. To fall back to greedy per-token classification:
+
+```python
+restorer = ScriptRestorer(use_viterbi=False)
+```
+
 ## Supported Languages
 
-All 8 primary languages are tested at **100% accuracy** on 111 test sentences. 14 additional scheduled languages of India are supported.
+24 languages across 12 scripts. All 22 scheduled languages of India plus Bhojpuri and Chhattisgarhi.
 
 | Language | Script | Code | Status |
 |----------|--------|------|--------|
@@ -150,27 +158,38 @@ All 8 primary languages are tested at **100% accuracy** on 111 test sentences. 1
 | Kannada | Kannada | `kn` | 100% tested |
 | Gujarati | Gujarati | `gu` | 100% tested |
 | Punjabi | Gurmukhi | `pa` | 100% tested |
-| Odia | Odia | `or` | Supported |
-| Malayalam | Malayalam | `ml` | Supported |
-| Assamese | Bengali | `as` | Supported |
-| Urdu | Arabic | `ur` | Supported |
-| Sindhi | Arabic/Devanagari | `sd` | Supported |
-| Nepali | Devanagari | `ne` | Supported |
-| Konkani | Devanagari | `kok` | Supported |
-| Maithili | Devanagari | `mai` | Supported |
-| Dogri | Devanagari | `doi` | Supported |
-| Kashmiri | Arabic/Devanagari | `ks` | Supported |
-| Sanskrit | Devanagari | `sa` | Supported |
-| Santali | Ol Chiki | `sat` | Supported |
-| Manipuri | Meitei | `mni` | Supported |
-| Bodo | Devanagari | `brx` | Supported |
+| Malayalam | Malayalam | `ml` | 100% tested |
+| Odia | Odia | `or` | 100% tested |
+| Assamese | Bengali | `as` | 100% tested |
+| Nepali | Devanagari | `ne` | 100% tested |
+| Urdu | Perso-Arabic | `ur` | 100% tested |
+| Maithili | Devanagari | `mai` | 100% tested |
+| Konkani | Devanagari | `kok` | 100% tested |
+| Dogri | Devanagari | `doi` | 100% tested |
+| Sindhi | Perso-Arabic | `sd` | 100% tested |
+| Kashmiri | Perso-Arabic | `ks` | 100% tested |
+| Sanskrit | Devanagari | `sa` | 100% tested |
+| Bodo | Devanagari | `brx` | 100% tested |
+| Manipuri | Meetei Mayek | `mni` | 100% tested |
+| Santali | Ol Chiki | `sat` | 100% tested |
+| Bhojpuri | Devanagari | `bho` | Supported |
+| Chhattisgarhi | Devanagari | `hne` | Supported |
 
 ## How It Works
 
-The library uses a 5-stage hybrid pipeline with 3-tier romanization for maximum accuracy:
+The library uses a 5-stage hybrid pipeline with two pre-passes and HMM-based sequence tagging:
 
 ```
 ASR Output (single Indic script)
+    |
+    v
+[Pre-Pass A] ABBREVIATION DETECTION
+    Detects letter-name sequences: "ડીએ બીએ" -> "D.A. B.A."
+    |
+    v
+[Pre-Pass B] COMPOUND WORD DETECTION
+    Joins ASR-split English words (Urdu/Kashmiri/Sindhi):
+    "آن لائن" -> "online",  "ڈیڈ لائن" -> "deadline"
     |
     v
 [Stage 1] TOKENIZER
@@ -181,49 +200,89 @@ ASR Output (single Indic script)
     |
     |-- Tier 1: IndicXlit neural lookup (if installed)
     |      Indic word -> top-k English candidates -> exact dictionary match
-    |      e.g. "कंप्यूटर" -> ["computer", "komputer", ...] -> "computer" (exact hit)
+    |      e.g. "कंप्यूटर" -> ["computer", "komputer", ...] -> "computer"
     |
     |-- Tier 2: Aksharamukha ISO romanization (if installed)
-    |      Indic word -> ISO 15919 Latin -> normalize -> phonetic dictionary match
-    |      e.g. "कंप्यूटर" -> "kampyūṭar" -> "kampyutar" -> phonetic match "computer"
+    |      Indic word -> ISO 15919 Latin -> normalize -> phonetic match
+    |      e.g. "कंप्यूटर" -> "kampyūṭar" -> "kampyutar" -> "computer"
     |
     '-- Tier 3: Phoneme maps + transliteration variants (built-in fallback)
            Indic word -> character-by-character Latin -> phonetic match
-           e.g. "कंप्यूटर" -> "kampyootar" -> phonetic match "computer"
     |
-    |-- HIGH confidence  -> English word (done)
-    |-- LOW confidence   -> native word (done)
-    '-- AMBIGUOUS        -> Stage 3
+    |-- Known transliterations: direct Indic->English lookup (highest priority)
+    |-- Native exclusions: words guaranteed native (never restore)
+    |-- Confusable filter: blocks known false-positive matches
+    |-- Agglutinative suffix stripping: "ऑफिसमें" -> "ऑफिस" + "में"
+    |
+    |-- HIGH confidence  -> English (done)
+    |-- LOW confidence   -> Native (done)
+    '-- MEDIUM/AMBIGUOUS -> Stage 3
     |
     v
-[Stage 3] LANGUAGE IDENTIFICATION
-    Weighted signals: dictionary score, suffix patterns (-ment, -ing, -tion),
-    character composition, word length, context from neighboring tokens
-    |-- P(english) >= threshold -> Stage 4
-    '-- P(english) <  threshold -> native word (done)
+[Stage 3] HMM/VITERBI SEQUENCE TAGGER
+    Hidden Markov Model with 2 states (English, Native).
+    - Emission probabilities: from 6 LID signals (dictionary score, suffix
+      patterns, character composition, word length, native word lists, prefix)
+    - Transition probabilities: encode language inertia (consecutive words
+      tend to share a language) and code-switching patterns
+    - HIGH/LOW tokens act as clamped anchors that propagate influence to
+      neighboring ambiguous tokens via the Viterbi path
+    |
+    |   Finds the GLOBALLY optimal label sequence for the entire sentence,
+    |   instead of making greedy per-token decisions.
+    |
+    |   Example: "रैंडम" (weak match alone) gets tagged English because
+    |   its neighbor "स्क्रिप्ट" (strong match) makes N-E-E more likely
+    |   than N-N-E.
+    |
+    |-- Label = English -> Stage 4
+    '-- Label = Native  -> keep as-is (done)
     |
     v
 [Stage 4] NEURAL BACK-TRANSLITERATION (optional)
-    IndicXlit beam search -> top-k candidates -> rerank against 30K English dictionary
+    IndicXlit beam search -> top-k candidates -> rerank against 30K dictionary
     |
     v
 [Stage 5] RECONSTRUCTION
-    Reassemble: English words in Latin script, native words unchanged
-    Capitalize sentence starts, normalize punctuation
+    Reassemble: English words in Latin, native words unchanged
+    Capitalize at sentence boundaries, normalize punctuation (। -> . near English)
     |
     v
 Output (mixed-script text)
 ```
 
-### 3-Tier Romanization — Graceful Degradation
+### HMM/Viterbi Sequence Tagging (Stage 3)
+
+Previous versions used a greedy per-token classifier that decided each word's language independently. This caused three problems:
+
+1. **Isolated false positives** -- a native word with a marginal phonetic match got tagged English even though it was surrounded by native words
+2. **Missed English spans** -- two consecutive English words where each individually scored just below the threshold both got tagged Native
+3. **Cascade errors** -- one wrong decision propagated to the next token via the context signal
+
+The HMM/Viterbi approach solves all three by finding the **globally optimal** label sequence. It uses a 2-state Hidden Markov Model (English/Native) with:
+
+- **Emission probabilities** derived from the existing 6 weighted signals (dictionary 0.40, suffix 0.12, char_composition 0.13, length 0.10, native_list 0.10, prefix 0.05)
+- **Transition matrix** encoding that consecutive tokens usually share a language:
+
+```
+              English  Native
+  English     [0.70    0.30]
+  Native      [0.15    0.85]
+```
+
+HIGH and LOW confidence tokens from Stage 2 participate as **clamped anchors** (emission near 0.99 or 0.01), propagating their influence bidirectionally to neighboring ambiguous tokens. Sentences are split at punctuation boundaries to prevent context from bleeding across sentences.
+
+**Complexity**: O(T x 4) for T tokens with 2 states. A 20-word sentence = 80 operations -- essentially free.
+
+### 3-Tier Romanization -- Graceful Degradation
 
 The key design decision is the 3-tier romanization in Stage 2:
 
 | Tier | Engine | Accuracy | Latency | Memory | Requires |
 |------|--------|----------|---------|--------|----------|
-| 1 | IndicXlit (neural) | Best — produces actual English words directly | ~115ms/word | ~1.4 GB | `[neural]` extra |
-| 2 | Aksharamukha (rule-based) | Good — ISO romanization + phonetic matching | <5ms/word | ~50 MB | `aksharamukha` (core dep) |
-| 3 | Phoneme maps (built-in) | Baseline — character-level maps + translit variants | <1ms/word | ~50 MB | Nothing extra |
+| 1 | IndicXlit (neural) | Best -- produces actual English words directly | ~115ms/word | ~1.4 GB | `[neural]` extra |
+| 2 | Aksharamukha (rule-based) | Good -- ISO romanization + phonetic matching | <5ms/word | ~50 MB | `aksharamukha` (core dep) |
+| 3 | Phoneme maps (built-in) | Baseline -- character-level maps + translit variants | <1ms/word | ~50 MB | Nothing extra |
 
 The pipeline tries each tier in order and falls back gracefully. If IndicXlit is not installed, Tier 2+3 still provide strong coverage. If Aksharamukha is also missing, Tier 3 handles the basics.
 
@@ -236,9 +295,10 @@ restorer = ScriptRestorer(
     dict_path="path/to/english_dict.json",  # Custom English dictionary (default: built-in 30K words)
     warm_cache_dir="path/to/warm_cache/",   # Pre-computed Indic->English lookup tables
     use_neural=True,                         # Enable IndicXlit neural transliteration
-    high_threshold=0.75,                     # Score >= this -> HIGH confidence (auto-restore)
-    low_threshold=0.4,                       # Score <= this -> LOW confidence (keep native)
-    lid_threshold=0.65,                      # LID P(english) >= this -> classify as English
+    use_viterbi=True,                        # Enable HMM/Viterbi sequence tagging (default: True)
+    high_threshold=0.85,                     # Score >= this -> HIGH confidence (auto-restore)
+    low_threshold=0.55,                      # Score <= this -> LOW confidence (keep native)
+    lid_threshold=0.70,                      # LID P(english) >= this -> classify as English
 )
 ```
 
@@ -288,21 +348,28 @@ Warm caches bypass all pipeline stages and provide instant lookup for your most 
 
 ## Accuracy
 
-Tested on 111 sentences across 8 languages with the IndicXlit neural backend:
+Tested across 755 sentences covering all 22 scheduled languages:
 
-| Language | Sentences | Accuracy |
-|----------|-----------|----------|
-| Hindi | 31 | 100% |
-| Bengali | 14 | 100% |
-| Tamil | 13 | 100% |
-| Telugu | 13 | 100% |
-| Kannada | 10 | 100% |
-| Gujarati | 10 | 100% |
-| Punjabi | 10 | 100% |
-| Marathi | 10 | 100% |
-| **Overall** | **111** | **100%** |
+| Test Suite | Sentences | Languages | Accuracy |
+|------------|-----------|-----------|----------|
+| Core (e2e_test.py) | 50 | 8 | 100% |
+| Expanded (e2e_test_expanded.py) | 111 | 8 | 100% |
+| Comprehensive (e2e_test_comprehensive.py) | 213 | 21 | 100% |
+| Unseen (e2e_test_unseen.py) | 77 | 22 | 100% |
+| Batch 1 (test_new_examples.py) | 148 | 10 | Tested |
+| Batch 2 (test_new_examples_2.py) | 156 | 10 | Tested |
 
-The test suite covers common English loanwords used in Indian code-mixed speech: meeting, cancel, document, schedule, please, share, budget, approve, deadline, update, download, password, software, server, network, project, database, backup, file, system, restart, mobile, number, plan, search, and more.
+The test suite covers common English loanwords used in Indian code-mixed speech across domains: business (meeting, cancel, deadline, approve, budget), tech (server, database, backup, deploy, API), finance (invoice, payment, credit, tax, loan), healthcare (doctor, patient, emergency), travel (flight, ticket, booking), and more.
+
+### False Positive Prevention
+
+The pipeline is tuned for **precision over recall** -- keeping a native word native is more important than catching every English word. Multiple layers prevent false positives:
+
+- **Native exclusion lists**: Per-language sets of words that must never be restored (pronouns, postpositions, common verbs)
+- **Confusable filter**: Blocks known false-positive pairs (e.g., Hindi "अभी" (now) != "abbey")
+- **Short-word blocking**: Single-character Indic tokens are never restored; 2-character tokens require exact match only
+- **Viterbi isolation penalty**: An isolated weak match surrounded by native words stays native due to the high N->N transition cost
+- **Match-type awareness**: Phonetic and edit-distance matches are penalized vs exact matches in the LID signals
 
 ### Agglutination Handling
 
@@ -314,7 +381,32 @@ Indian languages fuse postpositions/case markers with nouns. The library handles
 ஆபிஸ்ல    = office + ல (Tamil locative)        -> "office"
 ```
 
-Supported suffix patterns: Hindi (-में, -को, -से), Bengali (-কে, -তে, -র), Tamil (-ல, -கிட்ட, -க்கு), Telugu (-లో, -కి), Marathi (-मध्ये, -ला, -साठी), Kannada (-ಲ್ಲಿ, -ಗೆ), Gujarati (-માં, -ને), Punjabi (-ਵਿੱਚ, -ਨੂੰ).
+Supported suffix patterns for 14 languages: Hindi (-में, -को, -से), Bengali (-কে, -তে, -র), Tamil (-ல, -கிட்ட, -க்கு), Telugu (-లో, -కి), Marathi (-मध्ये, -ला, -साठी), Kannada (-ಲ್ಲಿ, -ಗೆ), Gujarati (-માં, -ને), Punjabi (-ਵਿੱਚ, -ਨੂੰ), Malayalam (-ല്, -ക്ക്), Odia (-ରେ, -କୁ), Nepali (-मा, -लाई), Urdu (-میں, -کو), Assamese (-ত, -ক), Kashmiri (-مٕنٛز).
+
+### Abbreviation Detection
+
+English abbreviations spelled out in Indic script are detected and joined:
+
+```
+"ડીએ બીએ" (Gujarati)  -> "D.A. B.A."
+"एम पी"   (Hindi)      -> "M.P."
+"ডি বি"    (Bengali)    -> "D.B."
+```
+
+Supported for 7 scripts: Devanagari, Bengali, Gujarati, Gurmukhi, Tamil, Telugu, Kannada.
+
+### Compound Word Detection
+
+ASR systems for Perso-Arabic scripts sometimes split single English words across two tokens. The pipeline detects and merges these:
+
+```
+"آن لائن"  (Urdu)     -> "online"
+"ڈیڈ لائن" (Urdu)     -> "deadline"
+"نیٹ ورک"  (Urdu)     -> "network"
+"سافٹ ویئر" (Urdu)    -> "software"
+```
+
+Supported for Urdu, Kashmiri, and Sindhi.
 
 ## Development
 
@@ -326,14 +418,16 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,neural]"
 
-# Run unit tests (60 tests)
+# Run unit tests (77 tests)
 pytest tests/ -v
 
-# Run end-to-end tests (50 original sentences)
-python e2e_test.py
-
-# Run expanded test suite (111 sentences across 8 languages)
-python e2e_test_expanded.py
+# Run end-to-end tests
+python e2e_test.py                # 50 sentences, 8 languages
+python e2e_test_expanded.py       # 111 sentences, 8 languages
+python e2e_test_comprehensive.py  # 213 sentences, 21 languages
+python e2e_test_unseen.py         # 77 sentences, 22 languages
+python test_new_examples.py       # 148 sentences, 10 languages
+python test_new_examples_2.py     # 156 sentences, 10 languages
 ```
 
 ## Project Structure
@@ -341,31 +435,35 @@ python e2e_test_expanded.py
 ```
 codemix_restore/
     __init__.py                  # Public API: ScriptRestorer
-    pipeline.py                  # Main orchestrator (5-stage pipeline)
-    config.py                    # Language config registry (22 languages)
+    pipeline.py                  # Main orchestrator (5-stage pipeline + pre-passes)
+    config.py                    # Language config registry (24 languages, 12 scripts)
     tokenizer.py                 # Stage 1: Unicode-aware tokenization + script detection
     dictionary_lookup.py         # Stage 2: 3-tier romanization + dictionary matching
-    language_id.py               # Stage 3: Word-level language classifier
+    language_id.py               # Emission probability source (6 weighted signals)
+    viterbi_lid.py               # Stage 3: HMM/Viterbi sequence tagger
     neural_translit.py           # Stage 4: IndicXlit wrapper + caching
     reconstructor.py             # Stage 5: Reassembly, capitalization, punctuation
-    suffix_map.py                # Agglutinative suffix patterns per language
+    abbreviation.py              # Pre-pass: English abbreviation detection
+    confusable_filter.py         # False positive prevention (blocklist + distance)
+    suffix_map.py                # Agglutinative suffix patterns (14 languages)
     compat/
         __init__.py
         fairseq_patch.py         # Python 3.12 compatibility patches for fairseq/hydra
     phonetic/
         __init__.py
         engine.py                # Phonetic matching (Metaphone + SymSpell + translit variants)
-        script_phoneme_maps.py   # Per-script character-to-Latin phoneme maps
+        script_phoneme_maps.py   # Per-script character-to-Latin phoneme maps (12 scripts)
     data/
         en_dict_30k.json         # Built-in 30K English dictionary with frequency ranks
+        {lang}_common.txt        # Native word frequency lists (23 languages)
         warm_cache/              # Pre-generated per-language Indic->English caches
 tests/
-    test_config.py               # Language config tests
     test_tokenizer.py            # Tokenizer tests
     test_phonetic.py             # Phonetic matching tests
     test_dictionary_lookup.py    # Dictionary lookup tests
     test_pipeline.py             # End-to-end pipeline tests
     test_suffix_stripping.py     # Agglutination suffix stripping tests
+    test_viterbi_lid.py          # HMM/Viterbi sequence tagger tests
 ```
 
 ## License

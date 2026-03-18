@@ -47,11 +47,12 @@ The system uses a **5-stage sequential pipeline** with two pre-passes. Each stag
 │         │ MEDIUM / AMBIGUOUS tokens                                 │
 │         ▼                                                           │
 │  ┌──────────────┐                                                   │
-│  │  Stage 3     │  Language Identification (language_id.py)        │
-│  │              │  7-signal weighted classifier                     │
-│  │              │  → is_english=True / False                        │
+│  │  Stage 3     │  Sequence Tagging (viterbi_lid.py)               │
+│  │              │  HMM/Viterbi decoder with emissions from          │
+│  │              │  language_id.py 7-signal classifier               │
+│  │              │  → globally optimal E/N label sequence            │
 │  └──────┬───────┘                                                   │
-│         │ is_english=True                                           │
+│         │ label="E"                                                 │
 │         ▼                                                           │
 │  ┌──────────────┐                                                   │
 │  │  Stage 4     │  Neural Transliteration (neural_translit.py)     │
@@ -88,7 +89,7 @@ result = restorer.restore("धन्यवाद फॉर योर हेल�
 
 ### 2. Pipeline Orchestrator — `pipeline.py`
 
-**Path**: `codemix_restore/pipeline.py` (~396 lines)
+**Path**: `codemix_restore/pipeline.py` (~500+ lines)
 
 The central coordinator that chains all stages together.
 
@@ -113,6 +114,8 @@ DictionaryLookup(phonetic_matcher, warm_cache_dir, neural_transliterator)
     ↓
 WordLanguageIdentifier(english_threshold, native_word_lists)
     ↓
+ViterbiSequenceTagger(lid)   [when use_viterbi=True]
+    ↓
 Reconstructor()
 ```
 
@@ -125,6 +128,7 @@ Reconstructor()
 | `high_threshold` | `0.85` | Score above which dictionary match = HIGH confidence |
 | `low_threshold` | `0.55` | Score below which dictionary match = LOW confidence |
 | `lid_threshold` | `0.70` | Probability threshold for language identification |
+| `use_viterbi` | `True` | Use HMM/Viterbi sequence tagging for Stage 3 instead of greedy per-token classification |
 
 #### `ScriptRestorer.restore(text, lang, return_details)`
 
@@ -137,12 +141,9 @@ Main processing flow:
 5. **Pre-Pass A: Abbreviations** — detect letter-name sequences (e.g., "एम पी" → "M.P.")
 6. **Pre-Pass B: Compounds** — detect split English words in Perso-Arabic scripts
 7. **First pass: Dictionary lookup** — bulk lookup all INDIC tokens (skipping abbreviation/compound positions)
-8. **Second pass: Classify** — for each INDIC token:
-   - HIGH confidence → restore immediately
-   - LOW confidence → keep native
-   - MEDIUM/AMBIGUOUS → run LID
-     - LID says English → try dictionary match (with confidence gating) or neural transliteration
-     - LID says native → keep as-is
+8. **Second pass: Classify** — two strategies (controlled by `use_viterbi`):
+   - **Viterbi (default)**: Run HMM/Viterbi sequence tagger over all INDIC tokens as a batch. HIGH/LOW confidence tokens act as clamped anchors (emissions forced to near-certainty). Viterbi finds the globally optimal E/N label sequence, then resolves E-labelled tokens via dictionary match or neural transliteration.
+   - **Greedy (fallback)**: Per-token classification using LID probability threshold (original behavior, `use_viterbi=False`).
 9. **Stage 5: Reconstruct** — reassemble tokens with capitalization and punctuation normalization
 
 #### Compound Word Detection
@@ -455,11 +456,80 @@ Maps each Indic character to its closest Latin equivalent using curated per-scri
 
 ---
 
-### 8. Language Identification — `language_id.py`
+### 8. HMM/Viterbi Sequence Tagger — `viterbi_lid.py`
+
+**Path**: `codemix_restore/viterbi_lid.py` (~285 lines)
+
+Stage 3 (default): Replaces the greedy per-token language identification with a **globally optimal sequence decoder**. Uses a 2-state Hidden Markov Model (English/Native) decoded by the Viterbi algorithm.
+
+#### Why Viterbi?
+
+The previous greedy approach made independent per-token decisions with only a weak context signal (0.10 weight, immediate neighbors). This caused:
+1. **Isolated false positives** — a native word with a marginal phonetic match tagged English despite being surrounded by native words
+2. **Missed English spans** — two consecutive English words each just below the 0.65 threshold both tagged Native, even though together they should confirm English
+3. **Cascade errors** — one wrong decision propagating via the context signal
+
+Viterbi considers the **entire sentence** at once and finds the label sequence that maximizes the joint probability, naturally handling context through transition probabilities.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              ViterbiSequenceTagger.tag_sequence()                │
+│                                                                  │
+│  1. Filter INDIC tokens (skip abbreviation/compound positions)  │
+│  2. Split into segments at sentence-ending punctuation           │
+│     (".", "?", "!", "।", "॥", "۔", "؟")                         │
+│  3. For each segment:                                            │
+│     a. Compute emissions via _compute_emission()                 │
+│        - HIGH confidence → (0.99, 0.01) clamped anchor          │
+│        - LOW confidence  → (0.01, 0.99) clamped anchor          │
+│        - MEDIUM/AMBIGUOUS → LID classify() without context args │
+│     b. Single token → threshold fallback (≥0.65 = E)            │
+│     c. 2 tokens without HIGH anchor → threshold fallback         │
+│        (prevents N→N inertia from swallowing weak matches)       │
+│     d. 3+ tokens (or 2 with anchor) → run _viterbi() DP         │
+│  4. Return {position: "E"/"N"} for all INDIC tokens              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Transition Matrix
+
+| Transition | Value | Rationale |
+|---|---|---|
+| N→N | 0.85 | Native is the dominant language; most consecutive pairs are native-native |
+| E→E | 0.70 | English spans exist but are shorter (1-4 words typically) |
+| N→E | 0.15 | Switching into English is relatively uncommon per boundary |
+| E→N | 0.30 | Switching back to native after short English insertions |
+
+**Initial state distribution**: E=0.20, N=0.80 (most sentences start in the native language).
+
+#### `_viterbi()` — Pure DP Function
+
+Standard log-space Viterbi decoding for a 2-state HMM (~40 lines). O(T × S²) = O(T × 4) per sentence segment.
+
+**math.log(0) prevention** — three layers:
+1. Emissions clamped to [0.01, 0.99] in `_compute_emission()`
+2. `max(v, 1e-10)` before every `math.log()` in the DP
+3. Initial/transition priors similarly floored
+
+#### Clamped Anchors
+
+HIGH and LOW confidence tokens participate in the Viterbi path with near-certain emissions, acting as **anchors** that propagate bidirectional influence to neighboring ambiguous tokens via transitions. This is the main benefit: a HIGH-confidence "script" at position 5 pulls an ambiguous "random" at position 4 toward English through the E→E transition path.
+
+#### Short-Sentence Overpower Fix
+
+2-token segments without a HIGH-confidence anchor (emission ≥ 0.95) fall back to per-token threshold instead of Viterbi. This prevents the strong N→N inertia (0.85) from swallowing weak English matches that the threshold classifier would correctly accept at 0.65.
+
+---
+
+### 9. Language Identification — `language_id.py`
 
 **Path**: `codemix_restore/language_id.py` (~347 lines)
 
-Stage 3: Determines whether an Indic-script token is a transliterated English word or a genuine native word.
+The **emission probability source** for the Viterbi tagger. Computes a per-token English probability using 7 weighted signals. When used by Viterbi, it is called **without context arguments** (`prev_is_english=None, next_is_english=None`) so that context is handled by Viterbi transitions instead — no double-counting.
+
+When `use_viterbi=False`, this module drives Stage 3 directly as a greedy per-token classifier.
 
 #### 7-Signal Weighted Classifier
 
@@ -468,7 +538,7 @@ Stage 3: Determines whether an Indic-script token is a transliterated English wo
 | **Dictionary** | 0.40 | Match confidence from Stage 2. Match-type aware: exact/translit_variant (1.0×), phonetic (0.7×), edit_distance (0.5×) |
 | **Suffix** | 0.12 | Presence of English morphological suffixes written in Indic script (e.g., -मेंट/-ment, -शन/-tion, -इंग/-ing) |
 | **Character composition** | 0.13 | Unicode character features: nukta presence (foreign sounds), virama (consonant clusters typical of loanwords), specific conjuncts |
-| **Context** | 0.10 | Language of neighboring tokens. English neighbors increase probability. |
+| **Context** | 0.10 | Language of neighboring tokens. Neutral (0.5) when called from Viterbi. |
 | **Length** | 0.10 | Heuristic: very short words (1-2 base chars) penalized; medium length (4-8 chars) favored |
 | **Native word list** | 0.10 | Membership in `data/{lang}_common.txt` frequency lists → strong native signal |
 | **Prefix** | 0.05 | English prefixes in Indic script (e.g., प्री-/pre-, रि-/re-, अन-/un-) |
@@ -481,18 +551,11 @@ Stage 3: Determines whether an Indic-script token is a transliterated English wo
 | `probability` | `float` (0.0–1.0) |
 | `signals` | `dict[str, float]` |
 
-**Decision threshold**: `probability >= 0.65` → classified as English.
-
-#### Context Signal
-
-Uses a sliding window approach:
-- Checks previous non-whitespace, non-punctuation token's classification
-- Checks next token's dictionary lookup result (lookahead)
-- Adjacent English tokens boost probability; adjacent native tokens reduce it
+**Decision threshold**: `probability >= 0.65` → classified as English (used directly in greedy mode; used as emission probability in Viterbi mode).
 
 ---
 
-### 9. Neural Transliteration — `neural_translit.py`
+### 10. Neural Transliteration — `neural_translit.py`
 
 **Path**: `codemix_restore/neural_translit.py` (~328 lines)
 
@@ -537,7 +600,7 @@ These are listed under `[project.optional-dependencies] neural` in `pyproject.to
 
 ---
 
-### 10. Reconstructor — `reconstructor.py`
+### 11. Reconstructor — `reconstructor.py`
 
 **Path**: `codemix_restore/reconstructor.py` (~163 lines)
 
@@ -555,7 +618,7 @@ Stage 5: Reassembles classified tokens into the final output string.
 
 ---
 
-### 11. Abbreviation Detection — `abbreviation.py`
+### 12. Abbreviation Detection — `abbreviation.py`
 
 **Path**: `codemix_restore/abbreviation.py` (~147 lines)
 
@@ -586,7 +649,7 @@ Scans from `start_index` looking for 2+ consecutive words that are all in the le
 
 ---
 
-### 12. Confusable Filter — `confusable_filter.py`
+### 13. Confusable Filter — `confusable_filter.py`
 
 **Path**: `codemix_restore/confusable_filter.py` (~204 lines)
 
@@ -615,7 +678,7 @@ This catches cases where the phonetic algorithm finds a superficially similar wo
 
 ---
 
-### 13. Suffix Map — `suffix_map.py`
+### 14. Suffix Map — `suffix_map.py`
 
 **Path**: `codemix_restore/suffix_map.py` (~108 lines)
 
@@ -667,29 +730,34 @@ Pre-computed neural transliteration results. Maps Indic words to their best Engl
 The system uses a graduated confidence model to minimize false positives (native words wrongly converted to English), which are more damaging than false negatives (missed English words).
 
 ```
-Token arrives (INDIC script)
+Tokens arrive (INDIC script)
     │
-    ├─ In _KNOWN_TRANSLITERATIONS? ──→ HIGH → Restore ✓
+    │  ┌── Stage 2: Dictionary Lookup (per-token) ──┐
+    │  │                                              │
+    │  ├─ In _KNOWN_TRANSLITERATIONS? → HIGH          │
+    │  ├─ In _NATIVE_EXCLUSIONS? → LOW                │
+    │  ├─ ConfusableFilter._BLOCKLIST? → Block match  │
+    │  ├─ Phonetic score ≥ 0.85? → HIGH               │
+    │  ├─ Phonetic score ≤ 0.55? → LOW                │
+    │  └─ In between? → MEDIUM / AMBIGUOUS            │
+    │                                                  │
+    │  ┌── Stage 3: Viterbi Sequence Tagging ─────────┐
+    │  │                                               │
+    │  │  Compute emissions for all tokens:            │
+    │  │    HIGH → (0.99, 0.01) clamped anchor         │
+    │  │    LOW  → (0.01, 0.99) clamped anchor         │
+    │  │    MEDIUM/AMBIGUOUS → LID classify() prob     │
+    │  │                                               │
+    │  │  Run Viterbi DP over sentence segment         │
+    │  │  → globally optimal E/N label sequence        │
+    │  └───────────────────────────────────────────────┘
     │
-    ├─ In _NATIVE_EXCLUSIONS? ──→ LOW → Keep native ✓
-    │
-    ├─ In ConfusableFilter._BLOCKLIST? ──→ Block that candidate
-    │
-    ├─ Phonetic match score ≥ 0.85? ──→ HIGH → Restore ✓
-    │
-    ├─ Phonetic match score ≤ 0.55? ──→ LOW → Keep native ✓
-    │
-    ├─ Score in between? ──→ MEDIUM/AMBIGUOUS → Defer to LID
-    │       │
-    │       ├─ LID probability ≥ 0.75 + any match → Restore
-    │       ├─ LID probability ≥ 0.65 + strong match → Restore
-    │       ├─ LID probability ≥ 0.65 + weak match → Keep native
-    │       └─ LID probability < 0.65 → Keep native ✓
-    │
-    └─ No match at all? ──→ LID + Neural transliteration
-            │
-            ├─ Neural finds dictionary word → Restore
-            └─ Neural fails → Keep native ✓
+    ├─ label = "E" + HIGH confidence match → Restore (dictionary) ✓
+    ├─ label = "E" + MEDIUM match (quality gates pass) → Restore (viterbi+dictionary) ✓
+    ├─ label = "E" + no match → Neural transliteration
+    │       ├─ Neural finds dictionary word → Restore (viterbi+neural) ✓
+    │       └─ Neural fails → Keep native (viterbi_unresolved) ✓
+    └─ label = "N" → Keep native ✓
 ```
 
 ---
@@ -709,7 +777,9 @@ pipeline.py (ScriptRestorer)
     │   ├── suffix_map.py (AGGLUTINATIVE_SUFFIXES)
     │   ├── data/{lang}_common.txt (native word lists)
     │   └── [aksharamukha] (optional — romanization)
-    ├── language_id.py (WordLanguageIdentifier)
+    ├── viterbi_lid.py (ViterbiSequenceTagger)  ← NEW: Stage 3
+    │   └── language_id.py (WordLanguageIdentifier — emission source)
+    ├── language_id.py (WordLanguageIdentifier — also used directly when use_viterbi=False)
     ├── neural_translit.py (NeuralTransliterator)
     │   ├── phonetic/engine.py (for candidate reranking)
     │   ├── data/warm_cache/{lang}.json
@@ -738,7 +808,7 @@ The system degrades gracefully when optional (or even core) dependencies are mis
 
 | File | Tests | Purpose |
 |---|---|---|
-| `tests/` | 60 | Unit tests for individual modules (pytest) |
+| `tests/` | 77 | Unit tests for individual modules (pytest), including `test_viterbi_lid.py` |
 | `test_new_examples.py` | 148 | End-to-end integration tests — batch 1 |
 | `test_new_examples_2.py` | 156 | End-to-end integration tests — batch 2 |
 | `e2e_test_unseen.py` | 77 | Unseen sentence evaluation |
@@ -758,3 +828,5 @@ The system degrades gracefully when optional (or even core) dependencies are mis
 4. **Multiple matching strategies**: No single matching approach works for all cases. The layered approach (known transliterations → romanization + exact match → phonetic → edit-distance → neural) catches different types of words.
 
 5. **Explainability**: `return_details=True` provides per-token audit trail showing which stage made each decision and with what confidence.
+
+6. **Global over local**: Stage 3 uses Viterbi sequence decoding (global optimization) rather than greedy per-token decisions. This borrows the HMM/Viterbi mathematical framework but adapts it — instead of training n-gram models on external datasets, we use the emission probabilities already produced by our LID classifier, and since the input is already in a known Indic script, we simplify to a 2-state model (English/Native) rather than multi-language states.
