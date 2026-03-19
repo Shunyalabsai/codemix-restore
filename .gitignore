@@ -31,7 +31,6 @@ coverage.xml
 # Distribution
 dist/
 *.tar.gz
-*.whl
 
 # OS
 .DS_Store
@@ -46,5 +45,14 @@ models/
 # Warm cache data (generated, not committed)
 codemix_restore/data/warm_cache/*.json
 
+# Batch API intermediate data (large, regeneratable)
+data/translit_batch_jobs/
+data/translit_batch_jobs_v2/
+data/generated_transliterations/
+data/merged_transliterations/
+data/semantic_chunk_jobs/
+data/semantic_chunks/
 *.jsonl
-*.json
+
+# Intermediate stats/profiling outputs
+shunyalabs_restore_stats*.json

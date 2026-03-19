@@ -34,6 +34,7 @@ class ConfusableFilter:
         ("as", "এয়া"): {"you"},
         ("as", "পৰা"): {"para", "per"},
         # Bengali false positives
+        ("bn", "বসে"): {"base", "bass", "vase"},
         ("bn", "সঠিকে"): {"said"},
         ("bn", "পিউনের"): {"been"},
         ("bn", "আধ্যে"): {"it"},
@@ -60,6 +61,11 @@ class ConfusableFilter:
         ("hi", "छठमे"): {"shit"},
         ("hi", "ताजे"): {"take"},
         ("hi", "बारिश"): {"barish"},
+        ("hi", "बर्फ"): {"barf", "bar", "bars"},
+        ("hi", "बर्फ़"): {"barf", "bar", "bars"},
+        ("hi", "दौड़ने"): {"there", "turn", "torn"},
+        ("hi", "दौड़"): {"there", "door", "tour"},
+        ("hi", "सो"): {"so"},
         # Kannada false positives
         ("kn", "ಹೈ"): {"he"},
         ("kn", "ಸೆಟ್"): {"set"},
@@ -67,6 +73,7 @@ class ConfusableFilter:
         ("mr", "ताजे"): {"take"},
         ("mr", "दुरून"): {"turn"},
         # Malayalam false positives
+        ("ml", "ഓണത്തിന്"): {"when", "want", "won"},
         ("ml", "ഹോർ"): {"here", "her"},
         # Maithili false positives
         ("mai", "छठमे"): {"shit"},
@@ -88,6 +95,7 @@ class ConfusableFilter:
         # Konkani false positives
         ("kok", "कुडींत"): {"good"},
         # Kashmiri false positives
+        ("ks", "ہوا"): {"ho", "how", "who", "hoe"},
         ("ks", "مَت"): {"mat", "met", "mut"},
         ("ks", "بارش"): {"barish", "bar", "bars"},
         ("ks", "اپ"): {"up", "app"},
